@@ -2,23 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { z } from "zod";
-import {
-  abrirTurno,
-  fecharTurno,
-  lancarAbastecimentoManual,
-  registrarMovimento,
-  registrarVenda,
-  TIPOS_MOVIMENTO,
-  type TipoMovimento,
-} from "@/lib/data/caixa";
+import { abrirTurno, conferirPin, fecharTurno } from "@/lib/data/caixa";
+import { cancelarVenda, trocarPagamento } from "@/lib/data/vendas";
 import { lerReais, lerTresCasas } from "@/lib/format";
 import { exigirUsuario } from "@/lib/session";
 import { executar, type Estado } from "@/lib/acao";
 
-export type { Estado };
+// Vender, lançar bico manual e sangria passam por /api/caixa/operacoes (funcionam sem internet).
+// Aqui ficam as ações que exigem estar online.
 
-// ---------------------------------------------------------------------------
+export type { Estado };
 
 export async function acaoAbrirTurno(_: Estado, form: FormData): Promise<Estado> {
   const usuario = await exigirUsuario("caixa.operar");
@@ -41,76 +34,6 @@ export async function acaoAbrirTurno(_: Estado, form: FormData): Promise<Estado>
     redirect("/caixa");
   }
   return r;
-}
-
-export async function acaoLancarManual(_: Estado, form: FormData): Promise<Estado> {
-  const usuario = await exigirUsuario("caixa.operar");
-  return executar(async () => {
-    const modo = form.get("modo");
-    const texto = String(form.get("quantidade") ?? "");
-    if (modo === "valor") {
-      const centavos = lerReais(texto);
-      if (!centavos || centavos <= 0) return { erro: "Informe o valor em reais." };
-      await lancarAbastecimentoManual(usuario, { bicoId: String(form.get("bicoId")), valorCentavos: centavos });
-    } else {
-      const litros = lerTresCasas(texto);
-      if (!litros || Number(litros) <= 0) return { erro: "Informe os litros." };
-      await lancarAbastecimentoManual(usuario, { bicoId: String(form.get("bicoId")), litros });
-    }
-    revalidatePath("/caixa");
-    return { ok: "Abastecimento lançado. Ele já aparece na lista para registrar." };
-  });
-}
-
-const esquemaVenda = z.object({
-  chave: z.string().uuid(),
-  abastecimentos: z.array(z.string().uuid()).min(1, "Selecione pelo menos um abastecimento."),
-  formaId: z.string().uuid("Escolha a forma de pagamento."),
-  recebido: z.string().optional(),
-  cpf: z.string().optional(),
-});
-
-export async function acaoRegistrarVenda(_: Estado, form: FormData): Promise<Estado> {
-  const usuario = await exigirUsuario("caixa.operar");
-  return executar(async () => {
-    const r = esquemaVenda.safeParse({
-      chave: form.get("chave"),
-      abastecimentos: form.getAll("abastecimento"),
-      formaId: form.get("formaId"),
-      recebido: form.get("recebido") || undefined,
-      cpf: form.get("cpf") || undefined,
-    });
-    if (!r.success) return { erro: r.error.issues[0].message };
-    let recebido: number | undefined;
-    if (r.data.recebido) {
-      const v = lerReais(r.data.recebido);
-      if (v === null) return { erro: "Valor recebido inválido." };
-      recebido = v;
-    }
-    const venda = await registrarVenda(usuario, {
-      chave: r.data.chave,
-      abastecimentoIds: r.data.abastecimentos,
-      formaId: r.data.formaId,
-      recebidoCentavos: recebido,
-      cpfCnpj: r.data.cpf,
-    });
-    revalidatePath("/caixa");
-    const troco = venda.trocoCentavos > 0 ? ` Troco: ${(venda.trocoCentavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.` : "";
-    return { ok: `Venda registrada.${troco}` };
-  });
-}
-
-export async function acaoMovimento(_: Estado, form: FormData): Promise<Estado> {
-  const usuario = await exigirUsuario("caixa.operar");
-  return executar(async () => {
-    const tipo = String(form.get("tipo")) as TipoMovimento;
-    if (!(tipo in TIPOS_MOVIMENTO)) return { erro: "Escolha o tipo." };
-    const valor = lerReais(String(form.get("valor") ?? ""));
-    if (!valor) return { erro: "Informe o valor." };
-    await registrarMovimento(usuario, { chave: String(form.get("chave")), tipo, valorCentavos: valor, motivo: String(form.get("motivo") ?? "") });
-    revalidatePath("/caixa");
-    return { ok: "Movimento registrado." };
-  });
 }
 
 export async function acaoFecharTurno(_: Estado, form: FormData): Promise<Estado> {
@@ -141,4 +64,32 @@ export async function acaoFecharTurno(_: Estado, form: FormData): Promise<Estado
     redirect(`/relatorios/turnos/${turnoId}?fechado=1`);
   }
   return r;
+}
+
+export async function acaoCancelarVenda(_: Estado, form: FormData): Promise<Estado> {
+  const usuario = await exigirUsuario("caixa.operar");
+  return executar(async () => {
+    await cancelarVenda(usuario, String(form.get("vendaId")), String(form.get("motivo") ?? ""));
+    revalidatePath("/caixa/vendas");
+    revalidatePath("/caixa");
+    return { ok: "Venda cancelada. Os abastecimentos dela voltaram para a lista do caixa." };
+  });
+}
+
+export async function acaoTrocarPagamento(_: Estado, form: FormData): Promise<Estado> {
+  const usuario = await exigirUsuario("caixa.operar");
+  return executar(async () => {
+    await trocarPagamento(usuario, String(form.get("pagamentoId")), String(form.get("formaId")), String(form.get("motivo") ?? ""));
+    revalidatePath("/caixa/vendas");
+    return { ok: "Forma de pagamento trocada." };
+  });
+}
+
+/** Desbloqueio da tela do caixa: confere o PIN de quem está logado. */
+export async function acaoDesbloquear(_: Estado, form: FormData): Promise<Estado> {
+  const usuario = await exigirUsuario();
+  return executar(async () => {
+    const ok = await conferirPin(usuario.id, String(form.get("pin") ?? ""), usuario.empresaId);
+    return ok ? { ok: "desbloqueado" } : { erro: "PIN incorreto." };
+  });
 }

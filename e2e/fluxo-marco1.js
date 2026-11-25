@@ -71,8 +71,8 @@ fs.mkdirSync(OUT, { recursive: true });
 
   // Venda 1: bico 01 em dinheiro, recebido 250 -> troco 50
   await p.locator("tbody input[type=checkbox]").first().check();
-  await p.getByText("Dinheiro", { exact: true }).click();
-  await p.fill("#recebido", "250,00");
+  await p.getByRole("button", { name: "Dinheiro", exact: true }).click();
+  await p.locator("input[id^=pag-]").fill("250,00");
   await shot("S08-caixa-venda.png");
   await p.keyboard.press("F10");
   await p.getByText(/Venda registrada\. Troco: R\$\s?50,00\./).waitFor();
@@ -81,7 +81,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
   // Venda 2: os dois restantes juntos em PIX
   for (const cb of await p.locator("tbody input[type=checkbox]").all()) await cb.check();
-  await p.getByText("PIX", { exact: true }).click();
+  await p.getByRole("button", { name: "PIX", exact: true }).click();
   await p.keyboard.press("F10");
   await p.getByText("Venda registrada.").waitFor();
   await p.waitForSelector("text=Abastecimentos para registrar (0)");
@@ -89,6 +89,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
   // Sangria R$ 150
   await p.keyboard.press("F12");
+  await p.locator("dialog[open]").waitFor();
   await p.selectOption("#tipo", "sangria");
   await p.fill("#valor-mov", "150,00");
   await p.fill("#motivo", "Cofre");
@@ -127,7 +128,7 @@ fs.mkdirSync(OUT, { recursive: true });
   await p.getByText("Turno fechado.").waitFor();
   await shot("S11-relatorio-turno.png");
   passo("turno fechado -> relatório");
-  const difs = await p.locator("table").nth(1).locator("tbody tr td:last-child").allInnerTexts();
+  const difs = await p.locator("table[aria-label='Encerrantes por bico'] tbody tr td:last-child").allInnerTexts();
   console.log("  diferença de litros por bico:", [...new Set(difs)].join(", "));
 
   const urlRelatorio = p.url().replace(BASE, "");

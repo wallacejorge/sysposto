@@ -12,7 +12,11 @@ fechar com conferência de encerrantes e de caixa → relatório do turno → pa
 **Marco 2 (cadastros) concluído:** mercadorias e preços (agora, agendado, promoção, histórico), grupos, unidades,
 tipos de preço, tanques, bombas, bicos, formas de pagamento, administradoras, caixas, usuários, perfis, empresa e Meu PIN.
 
-Ainda **não** tem: NFC-e, integração com o concentrador das bombas, modo offline, venda a prazo.
+**Marco 3 (caixa de verdade) concluído:** produtos e código de barras, pagamento dividido, frentista, cancelamento e troca de
+pagamento, bloqueio da tela, funcionamento sem internet (fila no navegador + service worker), relatório com cancelamentos,
+trocas, por frentista e versão 80 mm.
+
+Ainda **não** tem: NFC-e, integração com o concentrador das bombas, reabrir turno, venda a prazo.
 Veja `../replica/build-log.md`.
 
 ## Rodar em desenvolvimento
@@ -47,7 +51,9 @@ PINs de exemplo: Gerente `1234`, Maria `1111`, João `2222`. Troque antes de usa
 | `app/tokens.css` | tokens do design (gerado de `../replica/design/tokens.json`) |
 | `app/(app)/cadastros` | telas de cadastro e suas ações |
 | `lib/data/cadastros.ts` | regras dos cadastros (o que pode e o que não pode mudar) |
-| `e2e/fluxo-marco1.js`, `e2e/fluxo-marco2.js` | percorrem os fluxos no navegador (`NODE_PATH=$(npm root -g) node e2e/...`) |
+| `lib/data/vendas.ts`, `app/api/caixa` | operações do caixa (idempotentes) e catálogo |
+| `lib/fila.ts`, `public/sw.js` | fila sem internet (IndexedDB) e service worker |
+| `e2e/fluxo-marco1.js` a `fluxo-marco3.js` | percorrem os fluxos no navegador (`NODE_PATH=$(npm root -g) node e2e/...`) |
 
 ## Regras importantes
 

@@ -34,7 +34,7 @@ const falha = (t) => { falhas++; console.log("  ✘", t); };
   console.log("Mercadorias e preços");
   await entrar("Gerente", "1234");
   await p.goto(BASE + "/cadastros/mercadorias");
-  (await p.locator("tbody tr").count()) === 4 ? ok("lista os 4 combustíveis") : falha("lista de combustíveis");
+  (await p.locator("tbody tr", { hasText: "Combustível" }).count()) === 4 ? ok("lista os 4 combustíveis") : falha("lista de combustíveis");
   await p.screenshot({ path: OUT + "M2-mercadorias.png", fullPage: true });
 
   await p.goto(BASE + "/cadastros/mercadorias/nova");
@@ -48,12 +48,12 @@ const falha = (t) => { falhas++; console.log("  ✘", t); };
   await enviar();
   await espera("Já existe uma mercadoria com esse código.", "recusa código repetido");
 
-  await p.fill("#c-codigo", "OL20");
-  await p.fill("#c-nome", "Óleo 20W50 1 L");
+  await p.fill("#c-codigo", "OL40");
+  await p.fill("#c-nome", "Óleo 15W40 1 L");
   await p.selectOption("#c-tipo", "produto");
   await p.fill("#c-codigo_anp", "");
   await p.selectOption("#c-unidade_id", { label: "UN · Unidade" });
-  await p.fill("#c-codigo_barras", "7891234567895");
+  await p.fill("#c-codigo_barras", "7891234567901");
   await enviar();
   await espera("Cadastro salvo.", "cadastra produto da loja");
   await espera("Sem preço.", "produto novo aparece sem preço");

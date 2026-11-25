@@ -13,7 +13,7 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-full flex-col">
       <div className="flex flex-1 flex-col md:flex-row">
-        <aside className="border-b border-border bg-bg md:w-[240px] md:shrink-0 md:border-r md:border-b-0">
+        <aside className="print:hidden border-b border-border bg-bg md:w-[240px] md:shrink-0 md:border-r md:border-b-0">
           <div className="flex items-center justify-between gap-2 px-4 py-3">
             <Link href="/" className="text-base font-bold">
               Sistema do Posto
@@ -24,13 +24,12 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
           </div>
           <Navegacao permissoes={usuario.permissoes} />
         </aside>
-        <main className="min-w-0 flex-1 px-4 py-6 md:px-8">{children}</main>
+        <main className="min-w-0 flex-1 px-4 py-6 md:px-8 print:p-0">{children}</main>
       </div>
       <footer
         aria-label="Situação"
-        className="flex min-h-[var(--layout-statusbar)] flex-wrap items-center gap-x-4 gap-y-1 border-t border-border bg-bg px-3 py-1 text-xs text-text-muted"
+        className="print:hidden flex min-h-[var(--layout-statusbar)] flex-wrap items-center gap-x-4 gap-y-1 border-t border-border bg-bg px-3 py-1 text-xs text-text-muted"
       >
-        <Selo tom="sucesso">Online</Selo>
         <span>
           Empresa <b className="text-text">{usuario.empresaNome}</b>
         </span>

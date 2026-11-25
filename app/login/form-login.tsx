@@ -5,6 +5,7 @@ import { useAcao } from "@/components/use-acao";
 import { Botao, Campo, MensagemErro, Rotulo, Selecao } from "@/components/ui";
 import type { OpcaoLogin } from "@/lib/data/caixa";
 import { entrar, type EstadoLogin } from "./actions";
+import { lembrarPinCandidato } from "@/lib/fila";
 
 export function FormLogin({ opcoes }: { opcoes: OpcaoLogin[] }) {
   const [estado, acao, enviando] = useAcao<EstadoLogin>(entrar);
@@ -21,7 +22,15 @@ export function FormLogin({ opcoes }: { opcoes: OpcaoLogin[] }) {
   }, [estado]);
 
   return (
-    <form onSubmit={acao} className="space-y-4">
+    <form
+      onSubmit={(e) => {
+        const dados = new FormData(e.currentTarget);
+        // Resumo do PIN para desbloquear a tela do caixa sem internet (nunca o PIN em si).
+        void lembrarPinCandidato(String(dados.get("usuarioId")), String(dados.get("pin")));
+        acao(e);
+      }}
+      className="space-y-4"
+    >
       <div>
         <Rotulo htmlFor="usuarioId">Usuário</Rotulo>
         <Selecao id="usuarioId" name="usuarioId" tamanho="normal" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>

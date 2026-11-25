@@ -29,7 +29,7 @@ export default async function FecharTurno() {
         titulo="Fechar turno"
         descricao={`${turno.caixa_nome} · ${turno.operador}. Digite o encerrante de cada bico e quanto você contou em cada forma de pagamento.`}
       />
-      <FormFechar resumo={resumo!} pendentes={pendentes.length} limite={limiteDiferenca()} />
+      <FormFechar resumo={resumo!} pendentes={pendentes.length} limite={limiteDiferenca()} operadorId={usuario.id} />
     </>
   );
 }

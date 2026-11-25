@@ -1,13 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { enviarFila, listarFila } from "@/lib/fila";
 import { useAcao } from "@/components/use-acao";
 import { Botao, Campo, Cartao, MensagemErro, Rotulo, Selo, Tabela } from "@/components/ui";
 import type { Resumo } from "@/lib/data/caixa";
 import { lerReais, lerTresCasas, reais, reaisComSinal, tresCasas } from "@/lib/format";
 import { acaoFecharTurno, type Estado } from "../actions";
 
-export function FormFechar({ resumo, pendentes, limite }: { resumo: Resumo; pendentes: number; limite: number }) {
+export function FormFechar({ resumo, pendentes, limite, operadorId }: { resumo: Resumo; pendentes: number; limite: number; operadorId: string }) {
+  // Vendas feitas sem internet e ainda não enviadas mudariam o caixa: o fechamento espera por elas.
+  const [naFila, setNaFila] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    void enviarFila(operadorId).then(() => listarFila(operadorId)).then((f) => vivo && setNaFila(f.length)).catch(() => {});
+    return () => { vivo = false; };
+  }, [operadorId]);
   const [estado, acao, enviando] = useAcao<Estado>(acaoFecharTurno);
   const [finais, setFinais] = useState<Record<string, string>>({});
   const [viradas, setViradas] = useState<Record<string, boolean>>({});
@@ -33,6 +41,11 @@ export function FormFechar({ resumo, pendentes, limite }: { resumo: Resumo; pend
     <form onSubmit={acao} className="space-y-4">
       <input type="hidden" name="turnoId" value={resumo.turno.id} />
 
+      {naFila > 0 ? (
+        <p role="alert" className="rounded-md bg-danger-bg px-3 py-2 font-semibold text-on-danger-bg">
+          Há {naFila} operação(ões) feitas sem internet que ainda não chegaram ao sistema. Volte ao caixa e espere a conexão para enviá-las antes de fechar.
+        </p>
+      ) : null}
       {pendentes > 0 ? (
         <p role="status" className="rounded-md bg-warning-bg px-3 py-2 font-medium text-on-warning-bg">
           Há {pendentes} abastecimento(s) sem venda registrada. Registre antes de fechar, ou eles ficam para o próximo turno e a conferência de litros vai mostrar diferença.
@@ -117,7 +130,7 @@ export function FormFechar({ resumo, pendentes, limite }: { resumo: Resumo; pend
       </Cartao>
 
       <MensagemErro>{estado.erro}</MensagemErro>
-      <Botao type="submit" tamanho="normal" carregando={enviando}>Fechar turno</Botao>
+      <Botao type="submit" tamanho="normal" carregando={enviando} disabled={naFila > 0}>Fechar turno</Botao>
     </form>
   );
 }

@@ -74,6 +74,20 @@ for (const [codigo, nome, anp, preco] of combustiveis) {
   merc[codigo] = m.id;
 }
 
+// Produtos da loja (exemplo)
+const un = await um(`select id from unidades where sigla = 'UN'`);
+const loja = await um(`insert into grupos (empresa_id, nome) values ($1, 'Loja e lubrificantes') returning id`, [empresa.id]);
+for (const [codigo, nome, barras, preco, tipo] of [
+  ["OL20", "Óleo 20W50 1 L", "7891234567895", "42.000", "produto"],
+  ["AG05", "Água mineral 500 ml", "7894900011517", "3.500", "produto"],
+  ["LAV", "Lavagem simples", null, "40.000", "servico"],
+]) {
+  const m = await um(
+    `insert into mercadorias (empresa_id, codigo, nome, grupo_id, unidade_id, tipo, codigo_barras) values ($1,$2,$3,$4,$5,$6,$7) returning id`,
+    [empresa.id, codigo, nome, loja.id, un.id, tipo, barras]);
+  await db.query(`insert into precos (empresa_id, mercadoria_id, tipo_preco_id, preco) values ($1,$2,$3,$4)`, [empresa.id, m.id, aVista.id, preco]);
+}
+
 // Tanques, 4 bombas, 16 bicos (bomba 1: bicos 1-4 ... bomba 4: bicos 13-16, como no posto)
 const tanques = {};
 let nTanque = 1;

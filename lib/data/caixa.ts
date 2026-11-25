@@ -164,7 +164,7 @@ export type Abastecimento = {
 export async function abastecimentosPendentes(empresaId: string): Promise<Abastecimento[]> {
   return q<Abastecimento>(
     `select a.id, b.numero as bico, m.nome as combustivel, a.litros::text, a.preco_unitario::text,
-            a.total_centavos, a.fim, a.origem
+            a.total_centavos, to_json(a.fim)#>>'{}' as fim, a.origem
        from abastecimentos a join bicos b on b.id = a.bico_id
        join tanques t on t.id = b.tanque_id join mercadorias m on m.id = t.mercadoria_id
       where a.empresa_id = $1 and a.status = 'pendente'
@@ -191,35 +191,6 @@ export async function bicosComPreco(empresaId: string): Promise<BicoVenda[]> {
   );
 }
 
-/** Lançamento manual (reserva quando a automação não registra). Informe litros OU valor. */
-export async function lancarAbastecimentoManual(
-  usuario: Usuario,
-  dados: { bicoId: string; litros?: string; valorCentavos?: number },
-): Promise<void> {
-  const bico = (await bicosComPreco(usuario.empresaId)).find((b) => b.id === dados.bicoId);
-  if (!bico) throw new ErroNegocio("Bico não encontrado ou sem preço cadastrado.");
-  const preco = Number(bico.preco);
-  let litros: number;
-  let total: number;
-  if (dados.valorCentavos && dados.valorCentavos > 0) {
-    total = dados.valorCentavos;
-    litros = Math.round((total / 100 / preco) * 1000) / 1000;
-  } else if (dados.litros && Number(dados.litros) > 0) {
-    litros = Number(dados.litros);
-    total = Math.round(litros * preco * 100);
-  } else {
-    throw new ErroNegocio("Informe os litros ou o valor do abastecimento.");
-  }
-  if (litros <= 0) throw new ErroNegocio("Valor baixo demais para este preço.");
-  await tx(usuario.id, (c) =>
-    c.query(
-      `insert into abastecimentos (empresa_id, bico_id, origem, litros, preco_unitario, total_centavos, fim, lancado_por)
-       values ($1,$2,'manual',$3,$4,$5,now(),$6)`,
-      [usuario.empresaId, dados.bicoId, litros.toFixed(3), bico.preco, total, usuario.id],
-    ),
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Venda
 // ---------------------------------------------------------------------------
@@ -234,85 +205,6 @@ export async function formasDePagamento(empresaId: string): Promise<FormaPagamen
   );
 }
 
-export async function registrarVenda(
-  usuario: Usuario,
-  dados: { chave: string; abastecimentoIds: string[]; formaId: string; recebidoCentavos?: number; cpfCnpj?: string },
-): Promise<{ vendaId: string; totalCentavos: number; trocoCentavos: number }> {
-  if (!dados.abastecimentoIds.length) throw new ErroNegocio("Selecione pelo menos um abastecimento.");
-  return tx(usuario.id, async (c) => {
-    // Venda já gravada com esta chave (clique duplo, reenvio): devolve a mesma.
-    const repetida = await c.query<{ id: string; total_centavos: number; troco: number }>(
-      `select v.id, v.total_centavos, coalesce(sum(vp.troco_centavos),0)::bigint as troco
-         from vendas v left join venda_pagamentos vp on vp.venda_id = v.id
-        where v.chave_cliente = $1 and v.empresa_id = $2 group by v.id`,
-      [dados.chave, usuario.empresaId],
-    );
-    if (repetida.rowCount) {
-      const r = repetida.rows[0];
-      return { vendaId: r.id, totalCentavos: r.total_centavos, trocoCentavos: r.troco };
-    }
-
-    const turno = await travarTurnoDoOperador(c, usuario);
-    const forma = await c.query<{ tipo: string }>(`select tipo from formas_pagamento where id = $1 and empresa_id = $2 and ativo`, [dados.formaId, usuario.empresaId]);
-    if (!forma.rowCount) throw new ErroNegocio("Forma de pagamento inválida.");
-
-    const abs = await c.query<{ id: string; bico_id: string; mercadoria_id: string; litros: string; preco_unitario: string; total_centavos: number }>(
-      `select a.id, a.bico_id, t.mercadoria_id, a.litros::text, a.preco_unitario::text, a.total_centavos
-         from abastecimentos a join bicos b on b.id = a.bico_id join tanques t on t.id = b.tanque_id
-        where a.id = any($1::uuid[]) and a.empresa_id = $2 and a.status = 'pendente'
-        order by a.fim
-        for update of a`,
-      [dados.abastecimentoIds, usuario.empresaId],
-    );
-    if (abs.rowCount !== dados.abastecimentoIds.length) {
-      throw new ErroNegocio("Um dos abastecimentos já foi registrado em outra venda. Atualize a lista.");
-    }
-    const total = abs.rows.reduce((s, a) => s + a.total_centavos, 0);
-
-    let recebido = total;
-    let troco = 0;
-    if (forma.rows[0].tipo === "dinheiro" && dados.recebidoCentavos !== undefined) {
-      if (dados.recebidoCentavos < total) throw new ErroNegocio("Valor recebido menor que o total.");
-      recebido = dados.recebidoCentavos;
-      troco = recebido - total;
-    }
-
-    const tipoPreco = await c.query<{ id: string }>(`select id from tipos_preco where empresa_id = $1 and padrao`, [usuario.empresaId]);
-    const cpf = dados.cpfCnpj?.replace(/\D/g, "") || null;
-    if (cpf && cpf.length !== 11 && cpf.length !== 14) throw new ErroNegocio("CPF/CNPJ inválido.");
-
-    const v = await c.query<{ id: string }>(
-      `insert into vendas (empresa_id, turno_id, caixa_id, operador_id, chave_cliente, status, total_centavos, cpf_cnpj_consumidor)
-       values ($1,$2,$3,$4,$5,'concluida',$6,$7) returning id`,
-      [usuario.empresaId, turno.id, turno.caixa_id, usuario.id, dados.chave, total, cpf],
-    );
-    const vendaId = v.rows[0].id;
-    let ordem = 1;
-    for (const a of abs.rows) {
-      await c.query(
-        `insert into venda_itens (venda_id, ordem, mercadoria_id, bico_id, tipo_preco_id, quantidade, preco_unitario, total_centavos, abastecimento_id)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [vendaId, ordem++, a.mercadoria_id, a.bico_id, tipoPreco.rows[0].id, a.litros, a.preco_unitario, a.total_centavos, a.id],
-      );
-    }
-    await c.query(
-      `insert into venda_pagamentos (venda_id, forma_pagamento_id, valor_centavos, troco_centavos) values ($1,$2,$3,$4)`,
-      [vendaId, dados.formaId, recebido, troco],
-    );
-    await c.query(`update abastecimentos set status = 'registrado' where id = any($1::uuid[])`, [dados.abastecimentoIds]);
-    return { vendaId, totalCentavos: total, trocoCentavos: troco };
-  });
-}
-
-async function travarTurnoDoOperador(c: Tx, usuario: Usuario) {
-  const t = await c.query<{ id: string; caixa_id: string }>(
-    `select id, caixa_id from turnos where empresa_id = $1 and operador_id = $2 and status in ('aberto','reaberto') for update`,
-    [usuario.empresaId, usuario.id],
-  );
-  if (!t.rowCount) throw new ErroNegocio("Você não tem turno aberto. Abra o turno antes de vender.");
-  return t.rows[0];
-}
-
 // ---------------------------------------------------------------------------
 // Movimentos de caixa
 // ---------------------------------------------------------------------------
@@ -324,23 +216,6 @@ export const TIPOS_MOVIMENTO = {
   receita: "Outra entrada de dinheiro",
 } as const;
 export type TipoMovimento = keyof typeof TIPOS_MOVIMENTO;
-
-export async function registrarMovimento(
-  usuario: Usuario,
-  dados: { chave: string; tipo: TipoMovimento; valorCentavos: number; motivo: string },
-) {
-  if (!(dados.tipo in TIPOS_MOVIMENTO)) throw new ErroNegocio("Tipo de movimento inválido.");
-  if (dados.valorCentavos <= 0) throw new ErroNegocio("Informe um valor maior que zero.");
-  if (dados.motivo.trim().length < 3) throw new ErroNegocio("Escreva o motivo.");
-  await tx(usuario.id, async (c) => {
-    const turno = await travarTurnoDoOperador(c, usuario);
-    await c.query(
-      `insert into movimentos_caixa (turno_id, tipo, valor_centavos, motivo, usuario_id, chave_cliente)
-       values ($1,$2,$3,$4,$5,$6) on conflict (chave_cliente) do nothing`,
-      [turno.id, dados.tipo, dados.valorCentavos, dados.motivo.trim(), usuario.id, dados.chave],
-    );
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Resumo e fechamento

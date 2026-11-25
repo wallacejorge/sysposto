@@ -380,8 +380,10 @@ create table venda_itens (
   preco_unitario numeric(10,3) not null check (preco_unitario >= 0),  -- congelado no momento da venda
   total_centavos bigint not null check (total_centavos >= 0),
   abastecimento_id uuid references abastecimentos(id) on delete restrict,
-  unique (venda_id, ordem),
-  unique (abastecimento_id)             -- um abastecimento da bomba não vira duas vendas
+  unique (venda_id, ordem)
+  -- Um abastecimento só entra em uma venda CONCLUÍDA por vez: garantido pela situação do abastecimento
+  -- (pendente -> registrado, com trava de linha). Venda cancelada devolve o abastecimento para pendente,
+  -- e ele pode entrar numa venda nova; por isso não há unique aqui.
 );
 create index on venda_itens (mercadoria_id);
 create index on venda_itens (bico_id);
