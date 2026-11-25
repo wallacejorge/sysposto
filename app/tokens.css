@@ -1,0 +1,89 @@
+/* Gerado de tokens.json - não edite à mão. */
+:root {
+  --color-bg: #ffffff;
+  --color-surface: #f5f6f8;
+  --color-surface-2: #eceef2;
+  --color-border: #dde1e7;
+  --color-border-input: #7d8693;
+  --color-text: #151a21;
+  --color-text-muted: #5a6472;
+  --color-accent: #1f5fd1;
+  --color-accent-hover: #184ca8;
+  --color-on-accent: #ffffff;
+  --color-focus: #1f5fd1;
+  --color-readonly: #f1f3f6;
+  --color-on-readonly: #323a45;
+  --color-total-bg: #e9f2ff;
+  --color-on-total: #0d3a8a;
+  --color-danger: #b42318;
+  --color-danger-bg: #fdecea;
+  --color-on-danger-bg: #8c1c13;
+  --color-success: #17734a;
+  --color-success-bg: #e6f4ec;
+  --color-on-success-bg: #0f5235;
+  --color-warning: #8a5300;
+  --color-warning-bg: #fff4d6;
+  --color-on-warning-bg: #6b4000;
+  --color-info-bg: #e9f2ff;
+  --color-on-info-bg: #0d3a8a;
+  --color-pdv-bg: #10151c;
+  --color-pdv-surface: #1b222c;
+  --color-pdv-text: #f4f6f9;
+  --color-pdv-muted: #a9b3c1;
+  --color-pdv-accent: #6aa4ff;
+  --color-pdv-total: #7ee2a8;
+  --font-sans: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-xs--font-weight: 500;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-sm--font-weight: 400;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-base--font-weight: 400;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.75rem;
+  --text-lg--font-weight: 600;
+  --text-xl: 1.75rem;
+  --text-xl--line-height: 2.125rem;
+  --text-xl--font-weight: 700;
+  --text-display: 2.5rem;
+  --text-display--line-height: 2.75rem;
+  --text-display--font-weight: 700;
+  --text-pdv-total: 3.5rem;
+  --text-pdv-total--line-height: 3.75rem;
+  --text-pdv-total--font-weight: 700;
+  --space-0: 0px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --control-compacto: 32px;
+  --control-normal: 40px;
+  --control-pdv: 56px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.10);
+  --shadow-pop: 0 12px 32px rgba(16,24,40,.18);
+  --motion-fast: 100ms;
+  --motion-base: 160ms;
+  --ease: cubic-bezier(.2,.8,.2,1);
+  --layout-sidebar: 240px;
+  --layout-sidebar-collapsed: 56px;
+  --layout-header: 48px;
+  --layout-statusbar: 28px;
+  --layout-content-max: 1440px;
+}
+
+/* Números sempre tabulares: valores, litros e encerrantes alinham na coluna. */
+.num { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

@@ -1,0 +1,52 @@
+# Sistema do Posto
+
+Sistema web para o posto: caixa (PDV), turnos com encerrantes, conferência de caixa e relatórios.
+Reconstrói as funções do sistema atual com código próprio. Planejamento em `../replica/`.
+
+## Estado
+
+**Marco 1 (fatia vertical) concluído:** entrar com PIN → abrir turno com encerrantes e fundo de troco →
+lançar abastecimento (manual) → registrar a venda (um ou vários abastecimentos, troco) → sangria/despesa →
+fechar com conferência de encerrantes e de caixa → relatório do turno → painel do dia.
+
+Ainda **não** tem: NFC-e, integração com o concentrador das bombas, telas de cadastro, modo offline.
+Veja `../replica/build-log.md`.
+
+## Rodar em desenvolvimento
+
+Precisa de Node 20+ e um Postgres 15+.
+
+```bash
+npm install
+```
+```bash
+cp .env.example .env.local   # preencha o banco e o SESSION_SECRET
+```
+```bash
+npm run db:reset             # APAGA o banco e cria os dados de exemplo
+```
+```bash
+npm run dev                  # http://localhost:3000
+```
+
+PINs de exemplo: Gerente `1234`, Maria `1111`, João `2222`. Troque antes de usar de verdade.
+
+## Estrutura
+
+| pasta | o quê |
+| --- | --- |
+| `app/login` | entrada por usuário + PIN |
+| `app/(app)/caixa` | caixa (PDV), abrir e fechar turno, ações do servidor |
+| `app/(app)/relatorios` | turnos e relatório de cada turno |
+| `lib/data/caixa.ts` | regras de negócio e consultas (toda escrita passa por `tx`, que grava a auditoria) |
+| `lib/format.ts` | dinheiro em centavos, litros com 3 casas, datas no fuso do posto |
+| `db/schema.sql` | banco completo (31 tabelas, regras, auditoria, acesso por empresa) |
+| `app/tokens.css` | tokens do design (gerado de `../replica/design/tokens.json`) |
+| `e2e/fluxo-marco1.js` | percorre o fluxo inteiro no navegador |
+
+## Regras importantes
+
+- Dinheiro é sempre inteiro em centavos; litros e encerrantes têm 3 casas.
+- Um operador e um caixa só têm um turno aberto por vez (garantido no banco).
+- Uma venda enviada duas vezes vira uma só (chave gerada no navegador).
+- Um abastecimento só entra em uma venda (trava de linha + situação).
