@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import {
   abrirTurno,
-  ErroNegocio,
   fecharTurno,
   lancarAbastecimentoManual,
   registrarMovimento,
@@ -15,19 +14,9 @@ import {
 } from "@/lib/data/caixa";
 import { lerReais, lerTresCasas } from "@/lib/format";
 import { exigirUsuario } from "@/lib/session";
+import { executar, type Estado } from "@/lib/acao";
 
-export type Estado = { erro?: string; ok?: string };
-
-async function executar(fn: () => Promise<Estado | void>): Promise<Estado> {
-  try {
-    return (await fn()) ?? {};
-  } catch (e) {
-    if (e instanceof ErroNegocio) return { erro: e.message };
-    // Erros inesperados não vão para a tela com detalhes técnicos.
-    console.error(e);
-    return { erro: "Não foi possível concluir. Tente de novo; se continuar, chame o gerente." };
-  }
-}
+export type { Estado };
 
 // ---------------------------------------------------------------------------
 

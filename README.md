@@ -9,7 +9,10 @@ Reconstrói as funções do sistema atual com código próprio. Planejamento em 
 lançar abastecimento (manual) → registrar a venda (um ou vários abastecimentos, troco) → sangria/despesa →
 fechar com conferência de encerrantes e de caixa → relatório do turno → painel do dia.
 
-Ainda **não** tem: NFC-e, integração com o concentrador das bombas, telas de cadastro, modo offline.
+**Marco 2 (cadastros) concluído:** mercadorias e preços (agora, agendado, promoção, histórico), grupos, unidades,
+tipos de preço, tanques, bombas, bicos, formas de pagamento, administradoras, caixas, usuários, perfis, empresa e Meu PIN.
+
+Ainda **não** tem: NFC-e, integração com o concentrador das bombas, modo offline, venda a prazo.
 Veja `../replica/build-log.md`.
 
 ## Rodar em desenvolvimento
@@ -42,7 +45,9 @@ PINs de exemplo: Gerente `1234`, Maria `1111`, João `2222`. Troque antes de usa
 | `lib/format.ts` | dinheiro em centavos, litros com 3 casas, datas no fuso do posto |
 | `db/schema.sql` | banco completo (31 tabelas, regras, auditoria, acesso por empresa) |
 | `app/tokens.css` | tokens do design (gerado de `../replica/design/tokens.json`) |
-| `e2e/fluxo-marco1.js` | percorre o fluxo inteiro no navegador |
+| `app/(app)/cadastros` | telas de cadastro e suas ações |
+| `lib/data/cadastros.ts` | regras dos cadastros (o que pode e o que não pode mudar) |
+| `e2e/fluxo-marco1.js`, `e2e/fluxo-marco2.js` | percorrem os fluxos no navegador (`NODE_PATH=$(npm root -g) node e2e/...`) |
 
 ## Regras importantes
 

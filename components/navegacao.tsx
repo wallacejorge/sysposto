@@ -22,10 +22,12 @@ const grupos: Grupo[] = [
   {
     titulo: "Cadastros",
     itens: [
-      { href: "/cadastros/mercadorias", rotulo: "Mercadorias e preços", permissao: "cadastro.editar" },
-      { href: "/cadastros/bicos", rotulo: "Bombas, bicos e tanques", permissao: "cadastro.editar" },
-      { href: "/cadastros/pagamentos", rotulo: "Formas de pagamento", permissao: "cadastro.editar" },
-      { href: "/cadastros/usuarios", rotulo: "Usuários e perfis", permissao: "cadastro.editar" },
+      { href: "/cadastros/mercadorias", rotulo: "Mercadorias e preços", permissao: "cadastro.editar", pronto: true },
+      { href: "/cadastros/bicos", rotulo: "Bombas, bicos e tanques", permissao: "cadastro.editar", pronto: true },
+      { href: "/cadastros/pagamentos", rotulo: "Formas de pagamento", permissao: "cadastro.editar", pronto: true },
+      { href: "/cadastros/caixas", rotulo: "Caixas", permissao: "cadastro.editar", pronto: true },
+      { href: "/cadastros/usuarios", rotulo: "Usuários e perfis", permissao: "cadastro.editar", pronto: true },
+      { href: "/cadastros/empresa", rotulo: "Dados da empresa", permissao: "cadastro.editar", pronto: true },
       { href: "/cadastros/clientes", rotulo: "Clientes e veículos", permissao: "cadastro.editar" },
     ],
   },
@@ -33,6 +35,7 @@ const grupos: Grupo[] = [
     titulo: "Fiscal",
     itens: [{ href: "/fiscal/nfce", rotulo: "NFC-e", permissao: "cadastro.editar" }],
   },
+  { titulo: "Minha conta", itens: [{ href: "/conta", rotulo: "Meu PIN", pronto: true }] },
 ];
 
 export function Navegacao({ permissoes }: { permissoes: Record<string, boolean> }) {
@@ -48,7 +51,7 @@ export function Navegacao({ permissoes }: { permissoes: Record<string, boolean> 
               <p className="hidden px-2 pb-1 text-xs font-semibold text-text-muted uppercase md:block">{g.titulo}</p>
               <ul className="flex gap-1 md:block md:space-y-0.5">
                 {itens.map((i) => {
-                  const ativo = i.href === "/" ? atual === "/" : atual === i.href;
+                  const ativo = i.href === "/" || i.href === "/caixa" ? atual === i.href : atual === i.href || atual.startsWith(i.href + "/");
                   return (
                     <li key={i.href}>
                       <Link
