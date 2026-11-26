@@ -3,6 +3,7 @@
 //   node e2e/fluxo-marco1.js
 // Requer o Playwright instalado globalmente (substituído por testes @playwright/test no /replica-test).
 const { chromium } = require("playwright");
+const { manual: manualEnc } = require("./ajuda");
 const OUT = process.env.PRINTS || "../replica/clone-screens/";
 const BASE = "http://localhost:3000";
 const fs = require("fs");
@@ -50,34 +51,24 @@ fs.mkdirSync(OUT, { recursive: true });
   passo("turno aberto -> caixa");
   await shot("S08-caixa-vazio.png");
 
-  // Bico manual: bico 01 por valor R$ 200,00
-  async function manual(bico, modo, qtd) {
-    await p.keyboard.press("F7");
-    await p.locator("dialog[open]").waitFor();
-    await p.getByRole("radio", { name: new RegExp(`^Bico ${bico},`) }).check({ force: true });
-    await p.getByLabel(modo === "valor" ? "Por valor (R$)" : "Por litros").check();
-    await p.fill("#quantidade", qtd);
-    await p.locator("dialog[open] button[type=submit]").click();
-    await p.locator("dialog[open]").waitFor({ state: "detached" }).catch(() => {});
-    await p.waitForFunction(() => !document.querySelector("dialog[open]"));
-  }
-  await manual(1, "valor", "200,00");
+  // Bico manual pelo encerrante. Preços: gasolina (bicos 1-8) R$ 8,59; diesel (9-16) R$ 8,29.
+  await manualEnc(p, 1, "20,000");                 // 20 L gasolina = R$ 171,80
   await p.waitForSelector("text=Abastecimentos para registrar (1)");
-  await manual(5, "litros", "20,341");
+  await manualEnc(p, 5, "10,000");                 // 10 L gasolina = R$ 85,90
   await p.waitForSelector("text=Abastecimentos para registrar (2)");
-  await manual(16, "valor", "61,49");
+  await manualEnc(p, 16, null, { virou: true, final: "0,000" }); // 999.990 -> 0 = 10 L diesel = R$ 82,90
   await p.waitForSelector("text=Abastecimentos para registrar (3)");
   passo("3 abastecimentos manuais lançados");
 
-  // Venda 1: bico 01 em dinheiro, recebido 250 -> troco 50
+  // Venda 1: bico 01 em dinheiro, recebido 200 -> troco 28,20
   await p.locator("tbody input[type=checkbox]").first().check();
   await p.getByRole("button", { name: "Dinheiro", exact: true }).click();
-  await p.locator("input[id^=pag-]").fill("250,00");
+  await p.locator("input[id^=pag-]").fill("200,00");
   await shot("S08-caixa-venda.png");
   await p.keyboard.press("F10");
-  await p.getByText(/Venda registrada\. Troco: R\$\s?50,00\./).waitFor();
+  await p.getByText(/Venda registrada\. Troco: R\$\s?28,20\./).waitFor();
   await p.waitForSelector("text=Abastecimentos para registrar (2)");
-  passo("venda em dinheiro com troco de R$ 50,00");
+  passo("venda em dinheiro com troco de R$ 28,20");
 
   // Venda 2: os dois restantes juntos em PIX
   for (const cb of await p.locator("tbody input[type=checkbox]").all()) await cb.check();
@@ -103,9 +94,9 @@ fs.mkdirSync(OUT, { recursive: true });
   for (let i = 0; i < finais.length; i++) {
     const ini = 100000 + i * 1000;
     let v = ini;
-    if (i === 0) v = ini + 33.904; // 200 / 5,899
-    if (i === 4) v = ini + 20.341;
-    if (i === 15) v = 0.0; // virou: 999.990,000 -> 999.999,999 -> 0,000 = 10,000 L (61,49 / 6,149)
+    if (i === 0) v = ini + 20;
+    if (i === 4) v = ini + 10;
+    if (i === 15) v = 0.0; // virou: 999.990,000 -> 999.999,999 -> 0,000 = 10,000 L
     await finais[i].fill(v.toFixed(3).replace(".", ","));
   }
   await p.locator("input[name^='virou:']").nth(15).check();
@@ -114,7 +105,9 @@ fs.mkdirSync(OUT, { recursive: true });
   // PIX esperado: 120,00 (20,341 x 5,899 = 119,99 arredondado) + 61,49.
   const esperados = await p.locator("tbody").nth(1).locator("tr td:nth-child(3)").allInnerTexts();
   console.log("  esperados:", esperados.join(" | "));
-  await contados[0].fill("120,00");
+  // Dinheiro esperado: 100 fundo + 171,80 venda - 150 sangria = 121,80. Contado com R$ 30 a menos.
+  const espDinheiro = Number(esperados[0].replace(/[^\d,]/g, "").replace(",", "."));
+  await contados[0].fill((espDinheiro - 30).toFixed(2).replace(".", ","));
   for (let i = 1; i < contados.length; i++) await contados[i].fill(esperados[i].replace(/[^\d,]/g, ""));
   await p.click("button[type=submit]");
   await p.getByText("(obrigatória: há diferença acima de R$ 5,00)").waitFor();

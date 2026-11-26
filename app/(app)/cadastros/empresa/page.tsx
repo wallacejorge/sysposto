@@ -33,6 +33,12 @@ export default async function Empresa() {
               <option value="presumido">Lucro presumido</option>
               <option value="real">Lucro real</option>
             </CampoSelecao>
+            <CampoSelecao nome="crt" rotulo="CRT (como sai na nota)" valor={e.crt} obrigatorio dica="Lucro presumido ou real: 3. Simples: 1.">
+              <option value="1">1 · Simples Nacional</option>
+              <option value="2">2 · Simples, excesso de sublimite</option>
+              <option value="3">3 · Regime normal</option>
+              <option value="4">4 · MEI</option>
+            </CampoSelecao>
           </Grade>
         </FormAcao>
       </Cartao>

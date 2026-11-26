@@ -9,7 +9,8 @@ import { cnpjValido } from "./cadastros";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type OpManual = { tipo: "manual"; id: string; turnoId: string; bicoId: string; litros?: string; valorCentavos?: number; fim: string };
+/** Bico manual: o caixa informa o encerrante final mostrado na bomba; litros e valor saem dele. */
+export type OpManual = { tipo: "manual"; id: string; turnoId: string; bicoId: string; encerranteFinal: string; virou?: boolean; fim: string };
 export type OpVenda = {
   tipo: "venda"; chave: string; turnoId: string; abastecimentos: string[];
   produtos: { mercadoriaId: string; quantidade: string }[];
@@ -73,38 +74,64 @@ async function precoEm(c: Tx, mercadoriaId: string, quando: Date): Promise<strin
   return r.rows[0]?.preco ?? null;
 }
 
+/**
+ * Último encerrante conhecido do bico para este turno: o do abastecimento mais recente depois da abertura
+ * (de qualquer caixa), ou o encerrante digitado na abertura do turno.
+ */
+export const SQL_ULTIMO_ENCERRANTE = `
+  coalesce(
+    (select a.encerrante_final from abastecimentos a
+      where a.bico_id = b.id and a.encerrante_final is not null and a.status <> 'cancelado'
+        and a.fim >= (select aberto_em from turnos where id = $T)
+      order by a.fim desc, a.created_at desc limit 1),
+    (select e.inicial from encerrantes e where e.turno_id = $T and e.bico_id = b.id))`;
+
+const mil = (v: string | number) => Math.round(Number(v) * 1000); // litros em milésimos (sem erro de arredondamento)
+
 async function abastecimentoManual(u: Usuario, op: OpManual): Promise<Resultado> {
   if (!UUID.test(op.id) || !UUID.test(op.bicoId)) throw new ErroNegocio("Dados do abastecimento inválidos.");
+  if (!/^\d{1,9}(\.\d{1,3})?$/.test(String(op.encerranteFinal ?? ""))) throw new ErroNegocio("Informe o encerrante final da bomba.");
   return tx(u.id, async (c) => {
     const ja = await c.query(`select 1 from abastecimentos where id = $1 and empresa_id = $2`, [op.id, u.empresaId]);
     if (ja.rowCount) return { ok: true, mensagem: "Abastecimento já registrado." };
     const t = await travarTurno(c, u, op.turnoId);
     const fim = horaDoTerminal(op.fim, t.aberto_em);
-    const b = await c.query<{ mercadoria_id: string }>(
-      `select ta.mercadoria_id from bicos b join tanques ta on ta.id = b.tanque_id where b.id = $1 and b.empresa_id = $2 and b.ativo`,
-      [op.bicoId, u.empresaId],
+    // Trava o bico: dois lançamentos ao mesmo tempo no mesmo bico não podem usar o mesmo encerrante inicial.
+    const b = await c.query<{ mercadoria_id: string; numero: number; maximo: string; inicial: string | null }>(
+      `select ta.mercadoria_id, b.numero, b.encerrante_maximo::text as maximo, ${SQL_ULTIMO_ENCERRANTE.replaceAll("$T", "$3")}::text as inicial
+         from bicos b join tanques ta on ta.id = b.tanque_id
+        where b.id = $1 and b.empresa_id = $2 and b.ativo
+        for update of b`,
+      [op.bicoId, u.empresaId, t.id],
     );
-    if (!b.rowCount) throw new ErroNegocio("Bico não encontrado ou inativo.");
-    const preco = await precoEm(c, b.rows[0].mercadoria_id, fim);
-    if (!preco) throw new ErroNegocio("Este combustível está sem preço cadastrado.");
-    let litros: number;
-    let total: number;
-    if (op.valorCentavos && op.valorCentavos > 0) {
-      total = Math.round(op.valorCentavos);
-      litros = Math.round((total / 100 / Number(preco)) * 1000) / 1000;
-    } else if (op.litros && Number(op.litros) > 0) {
-      litros = Math.round(Number(op.litros) * 1000) / 1000;
-      total = Math.round(litros * Number(preco) * 100);
+    const bico = b.rows[0];
+    if (!bico) throw new ErroNegocio("Bico não encontrado ou inativo.");
+    if (bico.inicial === null) throw new ErroNegocio(`O bico ${bico.numero} não tem encerrante na abertura deste turno.`);
+    const ini = mil(bico.inicial);
+    const fin = mil(op.encerranteFinal);
+    const max = mil(bico.maximo);
+    if (fin > max) throw new ErroNegocio(`Encerrante maior que o máximo do bico (${bico.maximo.replace(".", ",")}). Confira o número.`);
+    let litrosMil: number;
+    if (op.virou) {
+      if (fin >= ini) throw new ErroNegocio("Marcou que o totalizador zerou, mas o encerrante final é maior que o anterior. Desmarque \"zerou\".");
+      litrosMil = max - ini + fin + 1;
     } else {
-      throw new ErroNegocio("Informe os litros ou o valor do abastecimento.");
+      if (fin < ini) {
+        throw new ErroNegocio(`Encerrante final menor que o último registrado no bico ${bico.numero} (${(ini / 1000).toFixed(3).replace(".", ",")}). Se o totalizador zerou, marque "zerou".`);
+      }
+      litrosMil = fin - ini;
     }
-    if (litros <= 0 || litros > 100000) throw new ErroNegocio("Quantidade fora do normal. Confira o valor.");
+    if (litrosMil === 0) throw new ErroNegocio("O encerrante não mudou: nenhum litro saiu do bico.");
+    if (litrosMil > 3_000_000) throw new ErroNegocio("Mais de 3.000 litros num abastecimento. Confira o encerrante.");
+    const preco = await precoEm(c, bico.mercadoria_id, fim);
+    if (!preco) throw new ErroNegocio("Este combustível está sem preço cadastrado.");
+    const total = Math.round((litrosMil * mil(preco)) / 10_000); // (L × 1000) × (R$ × 1000) / 10.000 = centavos
     await c.query(
-      `insert into abastecimentos (id, empresa_id, bico_id, origem, litros, preco_unitario, total_centavos, fim, lancado_por)
-       values ($1,$2,$3,'manual',$4,$5,$6,$7,$8)`,
-      [op.id, u.empresaId, op.bicoId, litros.toFixed(3), preco, total, fim, u.id],
+      `insert into abastecimentos (id, empresa_id, bico_id, origem, litros, preco_unitario, total_centavos, encerrante_inicial, encerrante_final, fim, lancado_por)
+       values ($1,$2,$3,'manual',$4,$5,$6,$7,$8,$9,$10)`,
+      [op.id, u.empresaId, op.bicoId, (litrosMil / 1000).toFixed(3), preco, total, (ini / 1000).toFixed(3), (fin / 1000).toFixed(3), fim, u.id],
     );
-    return { ok: true, mensagem: "Abastecimento lançado." };
+    return { ok: true, mensagem: "Abastecimento lançado.", totalCentavos: total };
   });
 }
 
@@ -356,22 +383,23 @@ export async function trocarPagamento(u: Usuario, pagamentoId: string, novaForma
 
 export type Catalogo = {
   geradoEm: string;
-  bicos: { id: string; numero: number; combustivel: string; preco: string }[];
+  bicos: { id: string; numero: number; combustivel: string; preco: string; maximo: string; ultimo_encerrante: string | null }[];
   formas: { id: string; nome: string; tipo: string }[];
   produtos: { id: string; codigo: string; nome: string; codigo_barras: string | null; unidade: string; preco: string }[];
   frentistas: { id: string; apelido: string }[];
 };
 
-export async function catalogo(empresaId: string): Promise<Catalogo> {
+export async function catalogo(empresaId: string, turnoId: string | null): Promise<Catalogo> {
   const precoAgora = `(select pr.preco::text from precos pr join tipos_preco tp on tp.id = pr.tipo_preco_id and tp.padrao
       where pr.mercadoria_id = m.id and pr.vigente_desde <= now() and (pr.promocional_ate is null or pr.promocional_ate > now())
       order by pr.vigente_desde desc limit 1)`;
   const [bicos, formas, produtos, frentistas] = await Promise.all([
     q<Catalogo["bicos"][number]>(
-      `select * from (select b.id, b.numero, m.nome as combustivel, ${precoAgora} as preco
+      `select * from (select b.id, b.numero, m.nome as combustivel, ${precoAgora} as preco, b.encerrante_maximo::text as maximo,
+              ${SQL_ULTIMO_ENCERRANTE.replaceAll("$T", "$2::uuid")}::text as ultimo_encerrante
          from bicos b join tanques t on t.id = b.tanque_id join mercadorias m on m.id = t.mercadoria_id
         where b.empresa_id = $1 and b.ativo) x where preco is not null order by numero`,
-      [empresaId],
+      [empresaId, turnoId],
     ),
     q<Catalogo["formas"][number]>(
       `select id, nome, tipo from formas_pagamento where empresa_id = $1 and ativo

@@ -49,6 +49,22 @@ function percentual(f: FormData, nome: string): string | null {
   if (v === null || Number(v) > 100) throw new ErroNegocio("Taxa inválida (de 0 a 100%).");
   return Number(v).toFixed(2);
 }
+/** Percentual com até 4 casas (0 a 100). */
+function percentual4(f: FormData, nome: string): string | null {
+  const t = String(f.get(nome) ?? "").trim().replace("%", "");
+  if (!t) return null;
+  const n = Number(t.replace(/\./g, "").replace(",", "."));
+  if (!Number.isFinite(n) || n < 0 || n > 100) throw new ErroNegocio("Percentual inválido (de 0 a 100).");
+  return n.toFixed(4);
+}
+/** Valor com até 4 casas (ad rem em R$ por L ou kg). */
+function decimal4(f: FormData, nome: string, rotulo: string): string | null {
+  const t = String(f.get(nome) ?? "").trim().replace(/R\$|\s/g, "");
+  if (!t) return null;
+  const n = Number(t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t);
+  if (!Number.isFinite(n) || n < 0 || n > 1000) throw new ErroNegocio(`${rotulo}: valor inválido.`);
+  return n.toFixed(4);
+}
 function marcado(f: FormData, nome: string) {
   return f.get(nome) === "on";
 }
@@ -122,9 +138,12 @@ export async function acaoMercadoria(_: Estado, f: FormData): Promise<Estado> {
       codigo_barras: digitos(f, "codigo_barras", "Código de barras", [8, 12, 13, 14]),
       ncm: digitos(f, "ncm", "NCM", [8]),
       cest: digitos(f, "cest", "CEST", [7]),
-      codigo_anp: tipo === "combustivel" ? digitos(f, "codigo_anp", "Código ANP", [9], true) : null,
-      descricao_anp: tipo === "combustivel" ? opcional(f, "descricao_anp", 95) : null,
+      codigo_anp: digitos(f, "codigo_anp", "Código ANP", [9], tipo === "combustivel"),
+      descricao_anp: opcional(f, "descricao_anp", 95),
       ativo: idDoForm(f) ? marcado(f, "ativo") : true,
+      tributacao_id: idOpcional(f, "tributacao_id"),
+      p_bio: tipo === "combustivel" && String(f.get("p_bio") ?? "").trim() ? percentual4(f, "p_bio") : null,
+      kg_por_unidade: String(f.get("kg_por_unidade") ?? "").trim() ? decimal3(f, "kg_por_unidade", "Kg por unidade") : null,
     });
   });
   if (r.erro) return r;
@@ -247,7 +266,8 @@ export async function acaoCaixa(_: Estado, f: FormData): Promise<Estado> {
   const r = await executar(async () => {
     await cad.salvarCaixa(u, {
       id: idDoForm(f), numero: inteiro(f, "numero", "Número", 1, 99), nome: texto(f, "nome", "Nome", 40),
-      serie: inteiro(f, "serie", "Série da NFC-e", 1, 999), ativo: idDoForm(f) ? marcado(f, "ativo") : true,
+      serie: inteiro(f, "serie", "Série da NFC-e", 1, 999), serieContingencia: inteiro(f, "serie_contingencia", "Série de contingência", 1, 999),
+      ativo: idDoForm(f) ? marcado(f, "ativo") : true,
     });
   });
   if (r.erro) return r;
@@ -297,6 +317,7 @@ export async function acaoEmpresa(_: Estado, f: FormData): Promise<Estado> {
       razao_social: texto(f, "razao_social", "Razão social", 120), nome_fantasia: texto(f, "nome_fantasia", "Nome fantasia", 60),
       cnpj: digitos(f, "cnpj", "CNPJ", [14], true)!, inscricao_estadual: opcional(f, "inscricao_estadual", 20),
       uf: String(f.get("uf") ?? ""), municipio_ibge: digitos(f, "municipio_ibge", "Código IBGE do município", [7]), regime_tributario: regime,
+      crt: String(f.get("crt") ?? "3") as "1" | "2" | "3" | "4",
     });
     revalidatePath("/", "layout");
     return { ok: "Dados da empresa salvos." };
@@ -311,4 +332,35 @@ export async function acaoMeuPin(_: Estado, f: FormData): Promise<Estado> {
     await cad.trocarMeuPin(u, String(f.get("atual") ?? ""), novo);
     return { ok: "PIN trocado. Use o novo PIN na próxima entrada." };
   });
+}
+
+export async function acaoTributacao(_: Estado, f: FormData): Promise<Estado> {
+  const u = await exigirUsuario("cadastro.editar");
+  const r = await executar(async () => {
+    const cst = String(f.get("cst_icms") ?? "");
+    const un = String(f.get("ad_rem_unidade") ?? "");
+    const cfop = (nome: string, obrig: boolean) => {
+      const v = String(f.get(nome) ?? "").replace(/\D/g, "");
+      if (!v) { if (obrig) throw new ErroNegocio("Informe o CFOP de venda dentro do estado."); return null; }
+      if (v.length !== 4) throw new ErroNegocio("CFOP tem 4 números.");
+      return v;
+    };
+    const cstPis = (nome: string) => {
+      const v = String(f.get(nome) ?? "").replace(/\D/g, "");
+      if (v.length !== 2) throw new ErroNegocio("CST de PIS/COFINS tem 2 números.");
+      return v;
+    };
+    await cad.salvarTributacao(u, {
+      id: idDoForm(f), nome: texto(f, "nome", "Nome", 60), origem: String(f.get("origem") ?? "0").slice(0, 1) || "0", cst_icms: cst,
+      cfop_interno: cfop("cfop_interno", true)!, cfop_interestadual: cfop("cfop_interestadual", false),
+      p_icms: percentual(f, "p_icms"), p_icms_efetivo: percentual(f, "p_icms_efetivo"),
+      ad_rem: decimal4(f, "ad_rem", "Ad rem"), ad_rem_unidade: un === "L" || un === "kg" ? un : null,
+      pis_cst: cstPis("pis_cst"), p_pis: percentual4(f, "p_pis"), cofins_cst: cstPis("cofins_cst"), p_cofins: percentual4(f, "p_cofins"),
+      c_benef: opcional(f, "c_benef", 10), revisar: marcado(f, "revisar"), observacao: opcional(f, "observacao", 500),
+    });
+  });
+  if (r.erro) return r;
+  revalidatePath("/cadastros/tributacao");
+  revalidatePath("/cadastros/mercadorias");
+  redirect("/cadastros/tributacao?salvo=1");
 }

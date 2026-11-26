@@ -16,7 +16,10 @@ tipos de preço, tanques, bombas, bicos, formas de pagamento, administradoras, c
 pagamento, bloqueio da tela, funcionamento sem internet (fila no navegador + service worker), relatório com cancelamentos,
 trocas, por frentista e versão 80 mm.
 
-Ainda **não** tem: NFC-e, integração com o concentrador das bombas, reabrir turno, venda a prazo.
+**Preparação da NFC-e:** tributação no formato da nota (copiada das notas que o posto já emite), CRT, série de
+contingência por caixa, produtos e preços reais, e lançamento manual pelo encerrante da bomba.
+
+Ainda **não** tem: emissão da NFC-e, integração com o concentrador das bombas, reabrir turno, venda a prazo.
 Veja `../replica/build-log.md`.
 
 ## Rodar em desenvolvimento
@@ -53,7 +56,7 @@ PINs de exemplo: Gerente `1234`, Maria `1111`, João `2222`. Troque antes de usa
 | `lib/data/cadastros.ts` | regras dos cadastros (o que pode e o que não pode mudar) |
 | `lib/data/vendas.ts`, `app/api/caixa` | operações do caixa (idempotentes) e catálogo |
 | `lib/fila.ts`, `public/sw.js` | fila sem internet (IndexedDB) e service worker |
-| `e2e/fluxo-marco1.js` a `fluxo-marco3.js` | percorrem os fluxos no navegador (`NODE_PATH=$(npm root -g) node e2e/...`) |
+| `e2e/*.js` (`ajuda.js` tem o lançamento por encerrante) | percorrem os fluxos no navegador (`NODE_PATH=$(npm root -g) node e2e/...`) |
 
 ## Regras importantes
 

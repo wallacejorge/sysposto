@@ -3,6 +3,7 @@
 // e concorrência. Uso: app em http://localhost:3000, banco recém-recriado (npm run db:reset):
 //   NODE_PATH=$(npm root -g) node e2e/fluxo-marco3.js
 const { chromium } = require("playwright");
+const { manual: manualEnc } = require("./ajuda");
 const BASE = "http://localhost:3000";
 const OUT = process.env.PRINTS || "../replica/clone-screens/";
 
@@ -28,14 +29,8 @@ const checa = (cond, t) => (cond ? ok(t) : falha(t));
     catch { falha(`${desc} (lista com ${await pendentes()})`); }
   };
   const botao = (nome) => p.getByRole("button", { name: nome, exact: true });
-  const manual = async (bico, valor) => {
-    await p.keyboard.press("F7");
-    await p.locator("dialog[open]").waitFor();
-    await p.getByRole("radio", { name: new RegExp(`^Bico ${bico},`) }).check({ force: true });
-    await p.fill("#quantidade", valor);
-    await p.locator("dialog[open] button[type=submit]").click();
-    await p.waitForFunction(() => !document.querySelector("dialog[open]"));
-  };
+  // Bico manual pelo encerrante (litros). Gasolina (bicos 1-8) R$ 8,59; diesel (9-16) R$ 8,29.
+  const manual = async (bico, litros) => manualEnc(p, bico, litros);
   const selecionar = async (bico) => p.getByRole("checkbox", { name: new RegExp(`^Bico ${bico},`) }).first().check();
 
   // Login e abertura
@@ -50,30 +45,30 @@ const checa = (cond, t) => (cond ? ok(t) : falha(t));
   await p.getByText(/Abastecimentos para registrar/).waitFor();
 
   console.log("Produtos e pagamento dividido");
-  await manual(1, "100,00");
-  await manual(2, "50,00");
+  await manual(1, "10,000");   // R$ 85,90
+  await manual(2, "5,000");    // R$ 42,95
   await esperaPendentes(2, "dois abastecimentos manuais na lista");
   await selecionar(1);
   await p.keyboard.press("F3");
-  await p.fill("#busca-produto", "7891234567895");
+  await p.fill("#busca-produto", "20W40");
   await p.keyboard.press("Enter");
-  await espera("Óleo 20W50 1 L", "produto entra pelo código de barras");
-  await espera("R$ 142,00", "total = abastecimento 100,00 + óleo 42,00");
+  await espera("Lubrificante 20W40 sintético 1 L", "produto entra pela busca (Enter com um resultado)");
+  await espera("R$ 125,90", "total = abastecimento 85,90 + lubrificante 40,00");
   await botao("PIX").click();
   await p.locator("#pag-" + (await p.locator("input[id^=pag-]").first().getAttribute("id")).slice(4)).fill("100,00");
   await botao("Dinheiro").click();
   await espera("Falta", "mostra quanto falta antes do dinheiro", 3000).catch(() => {});
   const dinheiro = p.locator("input[id^=pag-]").nth(1);
-  await dinheiro.fill("50,00");
-  await espera("Troco R$ 8,00", "troco de R$ 8,00 sai do dinheiro");
+  await dinheiro.fill("30,00");
+  await espera("Troco R$ 4,10", "troco de R$ 4,10 sai do dinheiro");
   await p.selectOption("#frentista", { label: "Carlos" });
   await p.fill("#cpf", "123.456.789-00");
   await p.keyboard.press("F10");
   await espera("CPF/CNPJ inválido", "recusa CPF inválido (o carrinho continua)");
-  checa((await p.getByText("Óleo 20W50 1 L").count()) > 0, "itens continuam na tela depois do erro");
+  checa((await p.getByText("Lubrificante 20W40 sintético 1 L").count()) > 0, "itens continuam na tela depois do erro");
   await p.fill("#cpf", "529.982.247-25");
   await p.keyboard.press("F10");
-  await espera(/Venda registrada\. Troco: R\$\s?8,00\./, "venda com PIX + dinheiro, frentista e CPF");
+  await espera(/Venda registrada\. Troco: R\$\s?4,10\./, "venda com PIX + dinheiro, frentista e CPF");
   await p.screenshot({ path: OUT + "M3-caixa-venda.png", fullPage: true });
 
   await selecionar(2);
@@ -91,7 +86,7 @@ const checa = (cond, t) => (cond ? ok(t) : falha(t));
   await p.locator("dialog[open] input[name=motivo]").fill("Lançado como PIX, era débito");
   await p.locator("dialog[open]").getByRole("button", { name: "Trocar" }).click();
   await espera("Forma de pagamento trocada.", "troca PIX por débito");
-  await p.locator("dialog[open] select[name=pagamentoId]").selectOption({ label: "Dinheiro · R$ 50,00" });
+  await p.locator("dialog[open] select[name=pagamentoId]").selectOption({ label: "Dinheiro · R$ 30,00" });
   await p.locator("dialog[open] select[name=formaId]").selectOption({ label: "PIX" });
   await p.locator("dialog[open] input[name=motivo]").fill("Cliente quis pagar o resto no PIX");
   await p.locator("dialog[open]").getByRole("button", { name: "Trocar" }).click();
@@ -144,13 +139,13 @@ const checa = (cond, t) => (cond ? ok(t) : falha(t));
   await p.keyboard.press("F10");
   await espera("Sem internet: venda guardada", "vende sem internet");
   await espera("Sem internet · 1 na fila", "mostra 1 na fila");
-  await manual(3, "70,00");
+  await manual(3, "5,000");    // R$ 42,95
   await espera("(na fila)", "bico manual sem internet aparece na lista");
   await selecionar(3);
   await botao("Dinheiro").click();
   await p.locator("input[id^=pag-]").fill("100,00");
   await p.keyboard.press("F10");
-  await espera(/Troco: R\$\s?30,00/, "venda em dinheiro sem internet mostra o troco");
+  await espera(/Troco: R\$\s?57,05/, "venda em dinheiro sem internet mostra o troco");
   await espera("Sem internet · 3 na fila", "3 operações na fila");
   await p.screenshot({ path: OUT + "M3-caixa-offline.png", fullPage: true });
 
@@ -181,7 +176,7 @@ const checa = (cond, t) => (cond ? ok(t) : falha(t));
   console.log("Fechamento espera a fila");
   await p.goto(BASE + "/caixa");
   await p.getByText(/Abastecimentos para registrar/).waitFor();
-  await manual(4, "20,00");
+  await manual(4, "2,000");
   await esperaPendentes(1, "abastecimento para o teste do fechamento");
   await ctx.setOffline(true);
   await selecionar(4);
@@ -201,7 +196,7 @@ const checa = (cond, t) => (cond ? ok(t) : falha(t));
   console.log("Venda guardada de turno que foi fechado em outro computador");
   await p.goto(BASE + "/caixa");
   await p.getByText(/Abastecimentos para registrar/).waitFor();
-  await manual(5, "30,00");
+  await manual(5, "3,000");
   await esperaPendentes(1, "abastecimento para o teste de rejeição");
   await ctx.setOffline(true);
   await selecionar(5);

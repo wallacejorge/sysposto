@@ -129,23 +129,35 @@ export function useCaixa(usuarioId: string, inicial: EstadoCaixa) {
   // − abastecimentos já usados em vendas que estão na fila.
   // "disponiveis": tudo que existe (servidor + manuais na fila), mesmo os que estão indo numa venda agora.
   // "pendentes": o que o caixa pode escolher (sem os que já estão numa venda na fila).
-  const disponiveis: LinhaPendente[] = useMemo(() => {
-    const manuais: LinhaPendente[] = fila
-      .filter((i) => i.op.tipo === "manual")
-      .map((i) => {
-        const op = i.op as OpManual;
-        const bico = estado.catalogo.bicos.find((b) => b.id === op.bicoId);
-        const preco = Number(bico?.preco ?? 0);
-        const total = op.valorCentavos ?? Math.round(Number(op.litros) * preco * 100);
-        const litros = op.litros ? Number(op.litros) : preco ? Math.round((total / 100 / preco) * 1000) / 1000 : 0;
-        return {
-          id: op.id, bico: bico?.numero ?? 0, combustivel: bico?.combustivel ?? "?", litros: litros.toFixed(3),
-          preco_unitario: bico?.preco ?? "0", total_centavos: total, fim: op.fim, origem: "manual" as const, naFila: true,
-        };
-      })
-      .filter((m) => !estado.pendentes.some((p) => p.id === m.id));
-    return [...estado.pendentes, ...manuais].sort((a, b) => new Date(a.fim).getTime() - new Date(b.fim).getTime());
+  // Último encerrante de cada bico: o do servidor + os lançamentos manuais ainda na fila (em ordem).
+  // Também calcula litros e valor de cada lançamento da fila, como o servidor vai calcular.
+  const { encerrantes, manuais } = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const b of estado.catalogo.bicos) if (b.ultimo_encerrante !== null) mapa.set(b.id, Math.round(Number(b.ultimo_encerrante) * 1000));
+    const lista: LinhaPendente[] = [];
+    const ops = fila.filter((i) => i.op.tipo === "manual").map((i) => i.op as OpManual).sort((x, y) => x.fim.localeCompare(y.fim));
+    for (const op of ops) {
+      const bico = estado.catalogo.bicos.find((b) => b.id === op.bicoId);
+      const ini = mapa.get(op.bicoId);
+      const fin = Math.round(Number(op.encerranteFinal) * 1000);
+      const max = Math.round(Number(bico?.maximo ?? "999999.999") * 1000);
+      const litrosMil = ini === undefined ? 0 : op.virou ? max - ini + fin + 1 : fin - ini;
+      mapa.set(op.bicoId, fin);
+      const total = Math.round((litrosMil * Math.round(Number(bico?.preco ?? 0) * 1000)) / 10_000);
+      lista.push({
+        id: op.id, bico: bico?.numero ?? 0, combustivel: bico?.combustivel ?? "?", litros: (litrosMil / 1000).toFixed(3),
+        preco_unitario: bico?.preco ?? "0", total_centavos: total, fim: op.fim, origem: "manual", naFila: true,
+      });
+    }
+    return { encerrantes: mapa, manuais: lista };
   }, [estado, fila]);
+
+  // "disponiveis": tudo que existe (servidor + manuais na fila), mesmo os que estão indo numa venda agora.
+  // "pendentes": o que o caixa pode escolher (sem os que já estão numa venda na fila).
+  const disponiveis: LinhaPendente[] = useMemo(() => {
+    const daFila = manuais.filter((m) => !estado.pendentes.some((p) => p.id === m.id));
+    return [...estado.pendentes, ...daFila].sort((a, b) => new Date(a.fim).getTime() - new Date(b.fim).getTime());
+  }, [estado, manuais]);
 
   const pendentes: LinhaPendente[] = useMemo(() => {
     const usados = new Set(fila.flatMap((i) => (i.op.tipo === "venda" ? (i.op as OpVenda).abastecimentos : [])));
@@ -157,5 +169,5 @@ export function useCaixa(usuarioId: string, inicial: EstadoCaixa) {
     await recarregarFila();
   }, [recarregarFila]);
 
-  return { estado, online, fila, rejeitadas, pendentes, disponiveis, turnoFechado, executar, sincronizar, descartar };
+  return { estado, online, fila, rejeitadas, pendentes, disponiveis, turnoFechado, encerrantes, executar, sincronizar, descartar };
 }

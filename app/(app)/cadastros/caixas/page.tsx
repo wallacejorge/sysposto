@@ -18,13 +18,13 @@ export default async function Caixas({ searchParams }: { searchParams: Promise<{
         acoes={<Link href="/cadastros/caixas/novo" className={botaoClasses("primario")}>Novo caixa</Link>} />
       <Cartao>
         <Tabela rotulo="Caixas">
-          <thead><tr><th>Nº</th><th>Nome</th><th className="text-right!">Série NFC-e</th><th>Turno</th><th>Situação</th></tr></thead>
+          <thead><tr><th>Nº</th><th>Nome</th><th className="text-right!">Série NFC-e</th><th className="text-right!">Contingência</th><th>Turno</th><th>Situação</th></tr></thead>
           <tbody>
             {caixas.map((c) => (
               <tr key={c.id}>
                 <td className="num">{c.numero}</td>
                 <td><Link href={`/cadastros/caixas/${c.id}`} className="font-semibold text-accent hover:underline">{c.nome}</Link></td>
-                <td className="num text-right">{c.serie_nfce}</td>
+                <td className="num text-right">{c.serie_nfce}</td><td className="num text-right">{c.serie_contingencia}</td>
                 <td>{c.turno_aberto ? <Selo tom="sucesso">Aberto · {c.turno_aberto}</Selo> : "—"}</td>
                 <td>{c.ativo ? <Selo tom="sucesso">Ativo</Selo> : <Selo>Inativo</Selo>}</td>
               </tr>

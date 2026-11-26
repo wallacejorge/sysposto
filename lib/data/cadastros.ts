@@ -87,16 +87,18 @@ export async function criarTipoPreco(u: Usuario, nome: string) {
 
 export type MercadoriaLista = {
   id: string; codigo: string; nome: string; tipo: "combustivel" | "produto" | "servico"; grupo: string | null;
-  unidade: string; preco: string | null; ativo: boolean;
+  unidade: string; preco: string | null; ativo: boolean; tributacao: string | null; revisar: boolean;
 };
 
 export async function listarMercadorias(empresaId: string, f: { busca?: string; tipo?: string; inativos?: boolean }): Promise<MercadoriaLista[]> {
   return q<MercadoriaLista>(
     `select m.id, m.codigo, m.nome, m.tipo, g.nome as grupo, un.sigla as unidade, m.ativo,
+            tr.nome as tributacao, coalesce(tr.revisar, false) as revisar,
             (select pr.preco::text from precos pr join tipos_preco tp on tp.id = pr.tipo_preco_id and tp.padrao
               where pr.mercadoria_id = m.id and pr.vigente_desde <= now() and (pr.promocional_ate is null or pr.promocional_ate > now())
               order by pr.vigente_desde desc limit 1) as preco
        from mercadorias m join unidades un on un.id = m.unidade_id left join grupos g on g.id = m.grupo_id
+       left join tributacoes tr on tr.id = m.tributacao_id
       where m.empresa_id = $1
         and ($2::text is null or m.nome ilike '%' || $2 || '%' or m.codigo ilike $2 || '%' or m.codigo_barras = $2)
         and ($3::text is null or m.tipo = $3)
@@ -111,12 +113,14 @@ export type Mercadoria = {
   id: string; codigo: string; nome: string; tipo: "combustivel" | "produto" | "servico"; grupo_id: string | null;
   unidade_id: string; codigo_barras: string | null; ncm: string | null; cest: string | null;
   codigo_anp: string | null; descricao_anp: string | null; ativo: boolean;
+  tributacao_id: string | null; p_bio: string | null; kg_por_unidade: string | null;
 };
 
 export async function buscarMercadoria(empresaId: string, id: string): Promise<Mercadoria | null> {
   if (!uuid(id)) return null;
   const [m] = await q<Mercadoria>(
-    `select id, codigo, nome, tipo, grupo_id, unidade_id, codigo_barras, ncm, cest, codigo_anp, descricao_anp, ativo
+    `select id, codigo, nome, tipo, grupo_id, unidade_id, codigo_barras, ncm, cest, codigo_anp, descricao_anp, ativo,
+            tributacao_id, p_bio::text, kg_por_unidade::text
        from mercadorias where id = $1 and empresa_id = $2`,
     [id, empresaId],
   );
@@ -131,28 +135,34 @@ export async function salvarMercadoria(u: Usuario, d: DadosMercadoria): Promise<
     const [g] = await q(`select 1 from grupos where id = $1 and empresa_id = $2`, [d.grupo_id, u.empresaId]);
     if (!g) throw new ErroNegocio("Grupo inválido.");
   }
+  if (d.tributacao_id) {
+    const [t] = await q(`select 1 from tributacoes where id = $1 and empresa_id = $2`, [d.tributacao_id, u.empresaId]);
+    if (!t) throw new ErroNegocio("Tributação inválida.");
+  }
   if (d.id && !d.ativo) {
     const [emUso] = await q(`select 1 from tanques where mercadoria_id = $1 and ativo`, [d.id]);
     if (emUso) throw new ErroNegocio("Este combustível está em um tanque ativo. Desative o tanque primeiro.");
   }
   const campos = [d.codigo, d.nome, d.tipo, d.grupo_id, d.unidade_id, d.codigo_barras, d.ncm, d.cest,
-    d.tipo === "combustivel" ? d.codigo_anp : null, d.tipo === "combustivel" ? d.descricao_anp : null, d.ativo];
+    d.codigo_anp, d.codigo_anp ? d.descricao_anp : null, d.ativo,
+    d.tributacao_id, d.tipo === "combustivel" ? d.p_bio : null, d.kg_por_unidade];
   return comMensagens(
     () =>
       tx(u.id, async (c) => {
         if (d.id) {
           const r = await c.query(
             `update mercadorias set codigo=$1, nome=$2, tipo=$3, grupo_id=$4, unidade_id=$5, codigo_barras=$6, ncm=$7, cest=$8,
-                    codigo_anp=$9, descricao_anp=$10, ativo=$11, updated_at=now()
-              where id = $12 and empresa_id = $13`,
+                    codigo_anp=$9, descricao_anp=$10, ativo=$11, tributacao_id=$12, p_bio=$13, kg_por_unidade=$14, updated_at=now()
+              where id = $15 and empresa_id = $16`,
             [...campos, d.id, u.empresaId],
           );
           if (!r.rowCount) throw new ErroNegocio("Mercadoria não encontrada.");
           return d.id;
         }
         const r = await c.query<{ id: string }>(
-          `insert into mercadorias (codigo, nome, tipo, grupo_id, unidade_id, codigo_barras, ncm, cest, codigo_anp, descricao_anp, ativo, empresa_id)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id`,
+          `insert into mercadorias (codigo, nome, tipo, grupo_id, unidade_id, codigo_barras, ncm, cest, codigo_anp, descricao_anp, ativo,
+                                   tributacao_id, p_bio, kg_por_unidade, empresa_id)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning id`,
           [...campos, u.empresaId],
         );
         return r.rows[0].id;
@@ -416,40 +426,53 @@ export async function salvarAdministradora(u: Usuario, d: Omit<Administradora, "
   );
 }
 
-export type Caixa = { id: string; numero: number; nome: string; serie_nfce: number; ativo: boolean; turno_aberto: string | null };
+export type Caixa = { id: string; numero: number; nome: string; serie_nfce: number; serie_contingencia: number; ativo: boolean; turno_aberto: string | null };
 
 export async function listarCaixas(empresaId: string): Promise<Caixa[]> {
   return q<Caixa>(
-    `select c.id, c.numero, c.nome, c.serie_nfce, c.ativo,
+    `select c.id, c.numero, c.nome, c.serie_nfce, c.serie_contingencia, c.ativo,
             (select u.apelido from turnos t join usuarios u on u.id = t.operador_id where t.caixa_id = c.id and t.status in ('aberto','reaberto')) as turno_aberto
        from caixas c where c.empresa_id = $1 order by c.numero`,
     [empresaId],
   );
 }
 
-export async function salvarCaixa(u: Usuario, d: { id?: string; numero: number; nome: string; serie: number; ativo: boolean }) {
-  if (d.serie < 1 || d.serie > 999) throw new ErroNegocio("A série da NFC-e vai de 1 a 999.");
+export async function salvarCaixa(u: Usuario, d: { id?: string; numero: number; nome: string; serie: number; serieContingencia: number; ativo: boolean }) {
+  if (d.serie < 1 || d.serie > 999 || d.serieContingencia < 1 || d.serieContingencia > 999) throw new ErroNegocio("As séries da NFC-e vão de 1 a 999.");
+  if (d.serie === d.serieContingencia) throw new ErroNegocio("A série de contingência tem de ser diferente da série normal.");
+  // Nenhuma série pode ser usada por dois caixas, nem trocando normal por contingência.
+  const [cruza] = await q(
+    `select 1 from caixas where empresa_id = $1 and id <> coalesce($2::uuid, '00000000-0000-0000-0000-000000000000')
+        and (serie_nfce in ($3, $4) or serie_contingencia in ($3, $4)) limit 1`,
+    [u.empresaId, d.id ?? null, d.serie, d.serieContingencia]);
+  if (cruza) throw new ErroNegocio("Outro caixa já usa uma dessas séries de NFC-e.");
   await comMensagens(
     () =>
       tx(u.id, async (c) => {
         if (d.id) {
-          const atual = await c.query<{ serie_nfce: number }>(`select serie_nfce from caixas where id = $1 and empresa_id = $2`, [d.id, u.empresaId]);
+          const atual = await c.query<{ serie_nfce: number; serie_contingencia: number }>(`select serie_nfce, serie_contingencia from caixas where id = $1 and empresa_id = $2`, [d.id, u.empresaId]);
           if (!atual.rowCount) throw new ErroNegocio("Caixa não encontrado.");
-          if (atual.rows[0].serie_nfce !== d.serie) {
-            const notas = await c.query(`select 1 from nfce where empresa_id = $1 and serie = $2 limit 1`, [u.empresaId, atual.rows[0].serie_nfce]);
-            if (notas.rowCount) throw new ErroNegocio("Este caixa já emitiu NFC-e nesta série. A série não pode mais mudar.");
+          const a = atual.rows[0];
+          for (const [antiga, nova] of [[a.serie_nfce, d.serie], [a.serie_contingencia, d.serieContingencia]]) {
+            if (antiga === nova) continue;
+            const notas = await c.query(`select 1 from nfce where empresa_id = $1 and serie = $2 limit 1`, [u.empresaId, antiga]);
+            if (notas.rowCount) throw new ErroNegocio(`Este caixa já emitiu NFC-e na série ${antiga}. Ela não pode mais mudar.`);
           }
           if (!d.ativo) {
             const t = await c.query(`select 1 from turnos where caixa_id = $1 and status in ('aberto','reaberto')`, [d.id]);
             if (t.rowCount) throw new ErroNegocio("Este caixa tem turno aberto. Feche o turno antes de desativar.");
           }
-          await c.query(`update caixas set numero=$1, nome=$2, serie_nfce=$3, ativo=$4 where id=$5 and empresa_id=$6`, [d.numero, d.nome, d.serie, d.ativo, d.id, u.empresaId]);
+          await c.query(`update caixas set numero=$1, nome=$2, serie_nfce=$3, serie_contingencia=$4, ativo=$5 where id=$6 and empresa_id=$7`,
+            [d.numero, d.nome, d.serie, d.serieContingencia, d.ativo, d.id, u.empresaId]);
         } else {
-          await c.query(`insert into caixas (empresa_id, numero, nome, serie_nfce, ativo) values ($1,$2,$3,$4,$5)`, [u.empresaId, d.numero, d.nome, d.serie, d.ativo]);
+          await c.query(`insert into caixas (empresa_id, numero, nome, serie_nfce, serie_contingencia, ativo) values ($1,$2,$3,$4,$5,$6)`,
+            [u.empresaId, d.numero, d.nome, d.serie, d.serieContingencia, d.ativo]);
         }
-        await c.query(`insert into nfce_numeracao (empresa_id, serie) values ($1,$2) on conflict do nothing`, [u.empresaId, d.serie]);
+        for (const serie of [d.serie, d.serieContingencia]) {
+          await c.query(`insert into nfce_numeracao (empresa_id, serie) values ($1,$2) on conflict do nothing`, [u.empresaId, serie]);
+        }
       }),
-    { caixas_empresa_id_numero_key: "Já existe um caixa com esse número.", caixas_empresa_id_serie_nfce_key: "Outro caixa já usa essa série de NFC-e." },
+    { caixas_empresa_id_numero_key: "Já existe um caixa com esse número.", caixas_empresa_id_serie_nfce_key: "Outro caixa já usa essa série de NFC-e.", caixas_empresa_id_serie_contingencia_key: "Outro caixa já usa essa série de contingência." },
   );
 }
 
@@ -562,10 +585,10 @@ export async function trocarMeuPin(u: Usuario, atual: string, novo: string) {
   await tx(u.id, (c) => c.query(`update usuarios set pin_hash = $1, updated_at = now() where id = $2`, [hash, u.id]));
 }
 
-export type Empresa = { id: string; razao_social: string; nome_fantasia: string; cnpj: string; inscricao_estadual: string | null; uf: string; municipio_ibge: string | null; regime_tributario: "simples" | "presumido" | "real" };
+export type Empresa = { id: string; razao_social: string; nome_fantasia: string; cnpj: string; inscricao_estadual: string | null; uf: string; municipio_ibge: string | null; regime_tributario: "simples" | "presumido" | "real"; crt: "1" | "2" | "3" | "4" };
 
 export async function buscarEmpresa(empresaId: string): Promise<Empresa> {
-  const [e] = await q<Empresa>(`select id, razao_social, nome_fantasia, cnpj, inscricao_estadual, uf, municipio_ibge, regime_tributario from empresas where id = $1`, [empresaId]);
+  const [e] = await q<Empresa>(`select id, razao_social, nome_fantasia, cnpj, inscricao_estadual, uf, municipio_ibge, regime_tributario, crt from empresas where id = $1`, [empresaId]);
   return e;
 }
 
@@ -589,14 +612,81 @@ export async function salvarEmpresa(u: Usuario, d: Omit<Empresa, "id">) {
   if (!cnpjValido(d.cnpj)) throw new ErroNegocio("CNPJ inválido. Confira os números.");
   if (!(UFS as readonly string[]).includes(d.uf)) throw new ErroNegocio("UF inválida.");
   if (d.municipio_ibge && !/^\d{7}$/.test(d.municipio_ibge)) throw new ErroNegocio("O código IBGE do município tem 7 números.");
+  if (d.regime_tributario === "simples" ? !["1", "2", "4"].includes(d.crt) : d.crt !== "3") {
+    throw new ErroNegocio("O CRT não combina com o regime: Simples usa CRT 1, 2 ou 4; lucro presumido ou real usa CRT 3.");
+  }
   await comMensagens(
     () =>
       tx(u.id, (c) =>
         c.query(
-          `update empresas set razao_social=$1, nome_fantasia=$2, cnpj=$3, inscricao_estadual=$4, uf=$5, municipio_ibge=$6, regime_tributario=$7, updated_at=now() where id=$8`,
-          [d.razao_social, d.nome_fantasia, d.cnpj, d.inscricao_estadual, d.uf, d.municipio_ibge, d.regime_tributario, u.empresaId],
+          `update empresas set razao_social=$1, nome_fantasia=$2, cnpj=$3, inscricao_estadual=$4, uf=$5, municipio_ibge=$6, regime_tributario=$7, crt=$8, updated_at=now() where id=$9`,
+          [d.razao_social, d.nome_fantasia, d.cnpj, d.inscricao_estadual, d.uf, d.municipio_ibge, d.regime_tributario, d.crt, u.empresaId],
         ),
       ),
     { empresas_cnpj_key: "Este CNPJ já está cadastrado em outra empresa." },
+  );
+}
+
+// ===========================================================================
+// Tributação (como sai na nota)
+// ===========================================================================
+
+export type Tributacao = {
+  id: string; nome: string; origem: string; cst_icms: string; cfop_interno: string; cfop_interestadual: string | null;
+  p_icms: string | null; p_icms_efetivo: string | null; ad_rem: string | null; ad_rem_unidade: "L" | "kg" | null;
+  pis_cst: string; p_pis: string | null; cofins_cst: string; p_cofins: string | null; c_benef: string | null;
+  revisar: boolean; observacao: string | null; mercadorias: number;
+};
+
+export async function listarTributacoes(empresaId: string): Promise<Tributacao[]> {
+  return q<Tributacao>(
+    `select t.id, t.nome, t.origem, t.cst_icms, t.cfop_interno, t.cfop_interestadual, t.p_icms::text, t.p_icms_efetivo::text,
+            t.ad_rem::text, t.ad_rem_unidade, t.pis_cst, t.p_pis::text, t.cofins_cst, t.p_cofins::text, t.c_benef, t.revisar, t.observacao,
+            (select count(*)::int from mercadorias m where m.tributacao_id = t.id and m.ativo) as mercadorias
+       from tributacoes t where t.empresa_id = $1 order by t.revisar desc, t.nome`,
+    [empresaId],
+  );
+}
+
+/** CSTs de ICMS aceitos (regime normal) e o que cada um exige. */
+export const CST_ICMS: Record<string, string> = {
+  "00": "00 · Tributada integralmente",
+  "20": "20 · Com redução de base",
+  "40": "40 · Isenta",
+  "41": "41 · Não tributada",
+  "60": "60 · ICMS cobrado antes por substituição tributária",
+  "61": "61 · Monofásico sobre combustível cobrado antes",
+  "90": "90 · Outras",
+};
+
+export async function salvarTributacao(u: Usuario, d: Omit<Tributacao, "id" | "mercadorias"> & { id?: string }) {
+  if (!CST_ICMS[d.cst_icms]) throw new ErroNegocio("CST de ICMS não suportado.");
+  if (d.cst_icms === "61" && (d.ad_rem === null || !d.ad_rem_unidade)) throw new ErroNegocio("CST 61 (monofásico) precisa do valor ad rem e da unidade (L ou kg).");
+  if ((d.cst_icms === "00" || d.cst_icms === "20") && d.p_icms === null) throw new ErroNegocio("Informe a alíquota de ICMS para esse CST.");
+  if (d.cfop_interestadual && d.cfop_interestadual[0] !== "6") throw new ErroNegocio("CFOP interestadual começa com 6.");
+  if (d.cfop_interno[0] !== "5") throw new ErroNegocio("CFOP de venda dentro do estado começa com 5.");
+  const campos = [d.nome, d.origem, d.cst_icms, d.cfop_interno, d.cfop_interestadual, d.p_icms, d.p_icms_efetivo,
+    d.cst_icms === "61" ? d.ad_rem : null, d.cst_icms === "61" ? d.ad_rem_unidade : null,
+    d.pis_cst, d.p_pis, d.cofins_cst, d.p_cofins, d.c_benef, d.revisar, d.observacao];
+  await comMensagens(
+    () =>
+      tx(u.id, async (c) => {
+        if (d.id) {
+          const r = await c.query(
+            `update tributacoes set nome=$1, origem=$2, cst_icms=$3, cfop_interno=$4, cfop_interestadual=$5, p_icms=$6, p_icms_efetivo=$7,
+                    ad_rem=$8, ad_rem_unidade=$9, pis_cst=$10, p_pis=$11, cofins_cst=$12, p_cofins=$13, c_benef=$14, revisar=$15, observacao=$16,
+                    updated_at=now()
+              where id=$17 and empresa_id=$18`,
+            [...campos, d.id, u.empresaId]);
+          if (!r.rowCount) throw new ErroNegocio("Tributação não encontrada.");
+        } else {
+          await c.query(
+            `insert into tributacoes (nome, origem, cst_icms, cfop_interno, cfop_interestadual, p_icms, p_icms_efetivo, ad_rem, ad_rem_unidade,
+                                      pis_cst, p_pis, cofins_cst, p_cofins, c_benef, revisar, observacao, empresa_id)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+            [...campos, u.empresaId]);
+        }
+      }),
+    { tributacoes_empresa_id_nome_key: "Já existe uma tributação com esse nome." },
   );
 }

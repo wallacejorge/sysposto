@@ -26,6 +26,7 @@ create table empresas (
   municipio_ibge char(7),
   endereco jsonb not null default '{}',
   regime_tributario text not null check (regime_tributario in ('simples','presumido','real')),
+  crt char(1) not null default '3' check (crt in ('1','2','3','4')),   -- código de regime tributário da nota
   fuso text not null default 'America/Sao_Paulo',
   ativo boolean not null default true,
   created_at timestamptz not null default now(),
@@ -85,18 +86,29 @@ create table grupos (
 create index on grupos (empresa_id);
 create index on grupos (pai_id);
 
-create table tributacoes (                -- perfil fiscal reaproveitado por várias mercadorias
+create table tributacoes (                -- perfil fiscal reaproveitado por várias mercadorias (campos como saem na nota)
   id uuid primary key default gen_random_uuid(),
   empresa_id uuid not null references empresas(id) on delete cascade,
   nome text not null,
-  cfop text not null check (cfop ~ '^[0-9]{4}$'),
-  csosn_cst text not null,
-  aliquota_icms numeric(5,2) not null default 0,
-  monofasico boolean not null default false,  -- combustíveis: ICMS monofásico (ad rem)
-  ad_rem_centavos_por_litro integer,
-  pis_cst text, cofins_cst text,
+  origem char(1) not null default '0' check (origem ~ '^[0-8]$'),
+  cst_icms text not null check (cst_icms ~ '^[0-9]{2,3}$'),     -- CST (regime normal) ou CSOSN (Simples)
+  cfop_interno char(4) not null check (cfop_interno ~ '^[1-7][0-9]{3}$'),
+  cfop_interestadual char(4) check (cfop_interestadual ~ '^[1-7][0-9]{3}$'),
+  p_icms numeric(5,2),                   -- CST 00/20...: alíquota destacada
+  p_icms_efetivo numeric(5,2),           -- CST 60: ICMS efetivo informativo (pICMSEfet)
+  ad_rem numeric(10,4),                  -- CST 61: ICMS monofásico retido por unidade da base (R$/L ou R$/kg)
+  ad_rem_unidade text check (ad_rem_unidade in ('L','kg')),
+  pis_cst char(2) not null check (pis_cst ~ '^[0-9]{2}$'),
+  p_pis numeric(6,4),
+  cofins_cst char(2) not null check (cofins_cst ~ '^[0-9]{2}$'),
+  p_cofins numeric(6,4),
+  c_benef text,
+  revisar boolean not null default false,   -- divergência encontrada: conferir com o contador
+  observacao text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (empresa_id, nome),
+  constraint monofasico_tem_ad_rem check (cst_icms <> '61' or (ad_rem is not null and ad_rem_unidade is not null))
 );
 create index on tributacoes (empresa_id);
 
@@ -114,6 +126,8 @@ create table mercadorias (
   tributacao_id uuid references tributacoes(id) on delete restrict,
   codigo_anp text,                      -- só combustível
   descricao_anp text,
+  p_bio numeric(7,4) check (p_bio between 0 and 100),   -- % de biodiesel (diesel) ou anidro (gasolina) informado no grupo comb
+  kg_por_unidade numeric(10,3),          -- GLP vendido por botijão: base do ad rem em kg
   ativo boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -278,11 +292,14 @@ create table caixas (                     -- terminal / ponto de venda
   empresa_id uuid not null references empresas(id) on delete cascade,
   numero integer not null,
   nome text not null,
-  serie_nfce integer not null,          -- cada caixa tem a própria série: a numeração nunca colide, nem offline
+  serie_nfce integer not null,          -- cada caixa tem a própria série: a numeração nunca colide
+  serie_contingencia integer not null,  -- série separada para notas emitidas sem internet (como o posto faz hoje: 105)
   dispositivo_token_hash text,          -- terminal autorizado pelo gerente
   ativo boolean not null default true,
   unique (empresa_id, numero),
-  unique (empresa_id, serie_nfce)
+  unique (empresa_id, serie_nfce),
+  unique (empresa_id, serie_contingencia),
+  check (serie_nfce <> serie_contingencia)
 );
 
 create table turnos (

@@ -2,6 +2,7 @@
 // Uso: app em http://localhost:3000, banco recém-recriado (npm run db:reset), depois:
 //   node e2e/fluxo-marco2.js
 const { chromium } = require("playwright");
+const { manual: manualEnc } = require("./ajuda");
 const BASE = "http://localhost:3000";
 const OUT = process.env.PRINTS || "../replica/clone-screens/";
 
@@ -34,7 +35,7 @@ const falha = (t) => { falhas++; console.log("  ✘", t); };
   console.log("Mercadorias e preços");
   await entrar("Gerente", "1234");
   await p.goto(BASE + "/cadastros/mercadorias");
-  (await p.locator("tbody tr", { hasText: "Combustível" }).count()) === 4 ? ok("lista os 4 combustíveis") : falha("lista de combustíveis");
+  (await p.locator("tbody tr", { hasText: "Combustível" }).count()) === 2 ? ok("lista os 2 combustíveis do posto") : falha("lista de combustíveis");
   await p.screenshot({ path: OUT + "M2-mercadorias.png", fullPage: true });
 
   await p.goto(BASE + "/cadastros/mercadorias/nova");
@@ -108,14 +109,14 @@ const falha = (t) => { falhas++; console.log("  ✘", t); };
   await enviar();
   await espera("Cadastro salvo.", "cria bomba 5");
   await p.goto(BASE + "/cadastros/bicos/tanque/novo");
-  await p.selectOption("#c-mercadoria_id", { label: "Etanol hidratado" });
+  await p.selectOption("#c-mercadoria_id", { label: "Diesel B S10" });
   await p.fill("#c-capacidade", "30.000");
   await enviar();
-  await espera("Cadastro salvo.", "cria tanque 5 de etanol");
+  await espera("Cadastro salvo.", "cria tanque 6 de diesel");
   await p.goto(BASE + "/cadastros/bicos/bico/novo");
   (await p.inputValue("#c-numero")) === "17" ? ok("sugere o próximo número de bico (17)") : falha("número sugerido");
   await p.selectOption("#c-bomba_id", { label: "Bomba 5" });
-  await p.selectOption("#c-tanque_id", { label: "Tanque 5 · Etanol hidratado" });
+  await p.selectOption("#c-tanque_id", { label: "Tanque 6 · Diesel B S10" });
   await enviar();
   await espera("Cadastro salvo.", "cria bico 17 na bomba 5");
   await p.screenshot({ path: OUT + "M2-bicos.png", fullPage: true });
@@ -126,7 +127,7 @@ const falha = (t) => { falhas++; console.log("  ✘", t); };
   await p.goto(BASE + "/cadastros/bicos/bico/novo");
   await p.fill("#c-numero", "1");
   await p.selectOption("#c-bomba_id", { label: "Bomba 5" });
-  await p.selectOption("#c-tanque_id", { label: "Tanque 5 · Etanol hidratado" });
+  await p.selectOption("#c-tanque_id", { label: "Tanque 6 · Diesel B S10" });
   await enviar();
   await espera("Já existe um bico com esse número.", "recusa número de bico repetido");
 
@@ -156,7 +157,7 @@ const falha = (t) => { falhas++; console.log("  ✘", t); };
   await p.goto(BASE + "/cadastros/caixas/novo");
   await p.fill("#c-serie", "1");
   await enviar();
-  await espera("Outro caixa já usa essa série de NFC-e.", "recusa série de NFC-e repetida");
+  await espera("Outro caixa já usa uma dessas séries de NFC-e.", "recusa série de NFC-e repetida");
 
   console.log("Usuários, perfis, empresa");
   await p.goto(BASE + "/cadastros/usuarios/usuario/novo");
@@ -219,13 +220,8 @@ const falha = (t) => { falhas++; console.log("  ✘", t); };
   await p.selectOption("#caixaId", { label: "Caixa 2" });
   await p.click("button[type=submit]");
   await p.getByText("Abastecimentos para registrar").waitFor();
-  await p.keyboard.press("F7");
-  await p.getByRole("radio", { name: /^Bico 1,/ }).check({ force: true });
-  await espera("R$ 6,199", "bico manual já usa o preço novo (6,199)");
-  await p.getByLabel("Por litros").check();
-  await p.fill("#quantidade", "10");
-  await p.locator("dialog[open] button[type=submit]").click();
-  await espera("R$ 61,99", "abastecimento de 10 L sai a R$ 61,99");
+  await manualEnc(p, 1, "10,000");
+  await espera("R$ 61,99", "bico manual já usa o preço novo: 10 L a R$ 6,199 = R$ 61,99");
 
   // Com turno aberto, não pode mudar bico
   await sair();

@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const u = await usuarioDaApi(req, "caixa.operar");
   if (u instanceof NextResponse) return u;
-  const [turno, pendentes, cat] = await Promise.all([turnoAbertoDo(u), abastecimentosPendentes(u.empresaId), catalogo(u.empresaId)]);
+  const turno = await turnoAbertoDo(u);
+  const [pendentes, cat] = await Promise.all([abastecimentosPendentes(u.empresaId), catalogo(u.empresaId, turno?.id ?? null)]);
   return NextResponse.json(
     { turno: turno ? { id: turno.id, caixa: turno.caixa_nome } : null, pendentes, catalogo: cat, usuario: { id: u.id, apelido: u.apelido } },
     { headers: { "Cache-Control": "no-store" } },

@@ -24,6 +24,7 @@ const grupos: Grupo[] = [
     itens: [
       { href: "/cadastros/mercadorias", rotulo: "Mercadorias e preços", permissao: "cadastro.editar", pronto: true },
       { href: "/cadastros/bicos", rotulo: "Bombas, bicos e tanques", permissao: "cadastro.editar", pronto: true },
+      { href: "/cadastros/tributacao", rotulo: "Tributação", permissao: "cadastro.editar", pronto: true },
       { href: "/cadastros/pagamentos", rotulo: "Formas de pagamento", permissao: "cadastro.editar", pronto: true },
       { href: "/cadastros/caixas", rotulo: "Caixas", permissao: "cadastro.editar", pronto: true },
       { href: "/cadastros/usuarios", rotulo: "Usuários e perfis", permissao: "cadastro.editar", pronto: true },

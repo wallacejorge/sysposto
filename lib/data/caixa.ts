@@ -222,7 +222,7 @@ export type TipoMovimento = keyof typeof TIPOS_MOVIMENTO;
 // ---------------------------------------------------------------------------
 
 export type LinhaForma = { forma_id: string; nome: string; tipo: string; vendas_centavos: number; esperado_centavos: number; informado_centavos: number | null; diferenca_centavos: number | null; justificativa: string | null };
-export type LinhaBico = { bico_id: string; numero: number; combustivel: string; inicial: string; final: string | null; virou: boolean; litros_encerrante: string | null; litros_vendidos: string; diferenca_litros: string | null };
+export type LinhaBico = { bico_id: string; numero: number; combustivel: string; inicial: string; final: string | null; virou: boolean; litros_encerrante: string | null; litros_vendidos: string; diferenca_litros: string | null; ultimo_lancado: string | null };
 export type Movimento = { id: string; tipo: TipoMovimento; valor_centavos: number; motivo: string; created_at: string; usuario: string };
 export type VendaResumo = { id: string; criada_em: string; total_centavos: number; status: string; itens: string; forma: string };
 
@@ -284,6 +284,10 @@ export async function resumoDoTurno(empresaId: string, turnoId: string): Promise
   });
   const bicos = await q<LinhaBico>(
     `select b.id as bico_id, b.numero, m.nome as combustivel, el.inicial::text, el.final::text, el.virou,
+            (select a.encerrante_final::text from abastecimentos a
+              where a.bico_id = b.id and a.encerrante_final is not null and a.status <> 'cancelado'
+                and a.fim >= (select aberto_em from turnos where id = $1)
+              order by a.fim desc, a.created_at desc limit 1) as ultimo_lancado,
             el.litros::text as litros_encerrante,
             coalesce((select sum(vi.quantidade) from venda_itens vi join vendas v on v.id = vi.venda_id
                        where v.turno_id = $1 and v.status = 'concluida' and vi.bico_id = b.id), 0)::numeric(14,3)::text as litros_vendidos,

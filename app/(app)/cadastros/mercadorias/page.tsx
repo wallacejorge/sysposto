@@ -49,7 +49,7 @@ export default async function Mercadorias({ searchParams }: { searchParams: Prom
         {lista.length ? (
           <Tabela rotulo="Mercadorias">
             <thead>
-              <tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Grupo</th><th>Unidade</th><th className="text-right!">Preço à vista</th><th>Situação</th></tr>
+              <tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Grupo</th><th>Unidade</th><th>Tributação</th><th className="text-right!">Preço à vista</th><th>Situação</th></tr>
             </thead>
             <tbody>
               {lista.map((m) => (
@@ -59,6 +59,7 @@ export default async function Mercadorias({ searchParams }: { searchParams: Prom
                   <td>{TIPOS[m.tipo]}</td>
                   <td>{m.grupo ?? "—"}</td>
                   <td>{m.unidade}</td>
+                  <td>{m.tributacao ?? <Selo tom="aviso">sem tributação</Selo>}{m.revisar ? <span className="ml-1"><Selo tom="aviso">revisar</Selo></span> : null}</td>
                   <td className="num text-right">{m.preco ? precoLitro(m.preco) : <Selo tom="aviso">sem preço</Selo>}</td>
                   <td>{m.ativo ? <Selo tom="sucesso">Ativo</Selo> : <Selo>Inativo</Selo>}</td>
                 </tr>

@@ -71,8 +71,10 @@ export function FormFechar({ resumo, pendentes, limite, operadorId }: { resumo: 
                   <td className="num text-right">{tresCasas(b.inicial)}</td>
                   <td>
                     <label className="sr-only" htmlFor={`final-${b.bico_id}`}>Encerrante final do bico {b.numero}</label>
-                    <Campo id={`final-${b.bico_id}`} name={`final:${b.bico_id}`} numerico inputMode="decimal" required placeholder="0,000"
+                    <Campo id={`final-${b.bico_id}`} name={`final:${b.bico_id}`} numerico inputMode="decimal" required placeholder={b.ultimo_lancado ? tresCasas(b.ultimo_lancado) : "0,000"}
+                      aria-describedby={b.ultimo_lancado ? `ult-${b.bico_id}` : undefined}
                       value={finais[b.bico_id] ?? ""} onChange={(e) => setFinais({ ...finais, [b.bico_id]: e.target.value })} />
+                    {b.ultimo_lancado ? <p id={`ult-${b.bico_id}`} className="mt-0.5 text-right text-xs text-text-muted">último lançado: {tresCasas(b.ultimo_lancado)}</p> : null}
                   </td>
                   <td>
                     <label className="flex items-center gap-1 text-xs">

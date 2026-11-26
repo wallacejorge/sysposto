@@ -28,7 +28,7 @@ const botaoPdv = "rounded-md border border-pdv-muted px-4 font-semibold hover:bg
 
 export function Pdv({ usuario, inicial }: { usuario: { id: string; apelido: string }; inicial: EstadoCaixa }) {
   const caixa = useCaixa(usuario.id, inicial);
-  const { estado, online, fila, rejeitadas, pendentes, disponiveis, turnoFechado } = caixa;
+  const { estado, online, fila, rejeitadas, pendentes, disponiveis, turnoFechado, encerrantes } = caixa;
   const cat = estado.catalogo;
   const turno = estado.turno ?? inicial.turno!;
 
@@ -353,7 +353,7 @@ export function Pdv({ usuario, inicial }: { usuario: { id: string; apelido: stri
       </div>
 
       <DialogoProduto refDialogo={dlgProduto} produtos={cat.produtos} aoEscolher={(p, q) => { adicionarProduto(p, q); dlgProduto.current?.close(); }} />
-      <DialogoManual refDialogo={dlgManual} bicos={cat.bicos}
+      <DialogoManual refDialogo={dlgManual} bicos={cat.bicos} encerrantes={encerrantes}
         aoLancar={async (dados) => {
           const r = await caixa.executar({ tipo: "manual", id: novoId(), turnoId: turno.id, fim: new Date().toISOString(), ...dados });
           if (r && !r.ok) return r.erro;
@@ -445,28 +445,34 @@ function DialogoProduto({ refDialogo, produtos, aoEscolher }: { refDialogo: Reac
   );
 }
 
-function DialogoManual({ refDialogo, bicos, aoLancar }: {
-  refDialogo: React.RefObject<HTMLDialogElement | null>; bicos: Catalogo["bicos"];
-  aoLancar: (d: { bicoId: string; litros?: string; valorCentavos?: number }) => Promise<string | null>;
+function DialogoManual({ refDialogo, bicos, encerrantes, aoLancar }: {
+  refDialogo: React.RefObject<HTMLDialogElement | null>; bicos: Catalogo["bicos"]; encerrantes: Map<string, number>;
+  aoLancar: (d: { bicoId: string; encerranteFinal: string; virou: boolean }) => Promise<string | null>;
 }) {
   const [bicoId, setBicoId] = useState("");
-  const [modo, setModo] = useState<"valor" | "litros">("valor");
-  const [quantidade, setQuantidade] = useState("");
+  const [texto, setTexto] = useState("");
+  const [virou, setVirou] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const bico = bicos.find((b) => b.id === bicoId);
+  const anterior = bicoId ? encerrantes.get(bicoId) : undefined;
+  const final = lerTresCasas(texto);
+  const fin = final === null ? null : Math.round(Number(final) * 1000);
+  const max = Math.round(Number(bico?.maximo ?? "999999.999") * 1000);
+  const litrosMil = fin === null || anterior === undefined ? null : virou ? max - anterior + fin + 1 : fin - anterior;
+  const totalCent = litrosMil === null || !bico ? null : Math.round((litrosMil * Math.round(Number(bico.preco) * 1000)) / 10_000);
+  const valido = litrosMil !== null && litrosMil > 0 && (!virou || (fin ?? 0) < (anterior ?? 0)) && (fin ?? 0) <= max;
 
   async function lancar(e: React.FormEvent) {
     e.preventDefault();
     if (!bicoId) return setErro("Escolha o bico.");
-    const valor = lerReais(quantidade) ?? 0;
-    const litros = lerTresCasas(quantidade) ?? "0";
-    if (modo === "valor" ? !(valor > 0) : !(Number(litros) > 0)) return setErro(modo === "valor" ? "Informe o valor em reais." : "Informe os litros.");
+    if (final === null) return setErro("Digite o encerrante final que aparece na bomba.");
+    if (litrosMil !== null && litrosMil <= 0 && !virou) return setErro("O encerrante final tem de ser maior que o anterior. Se o totalizador zerou, marque \"zerou\".");
     setEnviando(true);
-    const r = await aoLancar(modo === "valor" ? { bicoId, valorCentavos: valor } : { bicoId, litros });
+    const r = await aoLancar({ bicoId, encerranteFinal: final, virou });
     setEnviando(false);
     if (r) return setErro(r);
-    setBicoId(""); setQuantidade(""); setErro(null);
+    setBicoId(""); setTexto(""); setVirou(false); setErro(null);
     refDialogo.current?.close();
   }
 
@@ -478,28 +484,35 @@ function DialogoManual({ refDialogo, bicos, aoLancar }: {
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
             {bicos.map((b) => (
               <label key={b.id} title={`${b.combustivel} ${precoLitro(b.preco)}/L`} className={`flex h-14 cursor-pointer flex-col items-center justify-center rounded-md border font-bold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-[var(--color-pdv-accent)] ${bicoId === b.id ? "border-pdv-accent bg-pdv-bg" : "border-pdv-muted"}`}>
-                <input type="radio" name="bicoId" value={b.id} checked={bicoId === b.id} onChange={() => setBicoId(b.id)} className="sr-only" aria-label={`Bico ${b.numero}, ${b.combustivel}`} />
+                <input type="radio" name="bicoId" value={b.id} checked={bicoId === b.id} onChange={() => { setBicoId(b.id); setErro(null); }} className="sr-only" aria-label={`Bico ${b.numero}, ${b.combustivel}`} />
                 {String(b.numero).padStart(2, "0")}
               </label>
             ))}
           </div>
           {bico ? <p className="mt-2 text-sm text-pdv-muted">{bico.combustivel} · {precoLitro(bico.preco)}/L</p> : null}
         </fieldset>
-        <div className="flex gap-4">
-          {(["valor", "litros"] as const).map((m) => (
-            <label key={m} className="flex items-center gap-2">
-              <input type="radio" name="modo" value={m} checked={modo === m} onChange={() => setModo(m)} className="size-4" />
-              {m === "valor" ? "Por valor (R$)" : "Por litros"}
+        {bico ? (
+          <>
+            <p className="text-sm">
+              Encerrante anterior do bico: <b className="num">{anterior === undefined ? "desconhecido" : tresCasas(anterior / 1000)}</b>
+            </p>
+            <div>
+              <label htmlFor="encerrante-final" className="mb-1 block text-sm text-pdv-muted">Encerrante final (o número que a bomba mostra agora)</label>
+              <input id="encerrante-final" inputMode="decimal" autoComplete="off" value={texto} onChange={(e) => { setTexto(e.target.value); setErro(null); }}
+                placeholder={anterior === undefined ? "0,000" : tresCasas(anterior / 1000)} className={`h-control-pdv text-right text-lg ${campoPdv}`} />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={virou} onChange={(e) => setVirou(e.target.checked)} className="size-4" />
+              O totalizador zerou (passou do máximo e voltou a 0)
             </label>
-          ))}
-        </div>
-        <div>
-          <label htmlFor="quantidade" className="mb-1 block text-sm text-pdv-muted">{modo === "valor" ? "Valor (R$)" : "Litros"}</label>
-          <input id="quantidade" inputMode="decimal" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder={modo === "valor" ? "100,00" : "20,000"}
-            className={`h-control-pdv text-right text-lg ${campoPdv}`} />
-        </div>
+            <div className="grid grid-cols-2 gap-3 rounded-md bg-pdv-bg px-3 py-2" aria-live="polite">
+              <div><p className="text-xs text-pdv-muted">Litros</p><p className="num text-xl font-bold">{litrosMil !== null && litrosMil > 0 ? tresCasas(litrosMil / 1000) : "—"}</p></div>
+              <div><p className="text-xs text-pdv-muted">Valor</p><p className="num text-xl font-bold text-pdv-total">{valido && totalCent !== null ? reais(totalCent) : "—"}</p></div>
+            </div>
+          </>
+        ) : null}
         <Erro texto={erro} />
-        <button type="submit" disabled={enviando} className="h-control-pdv w-full rounded-md bg-accent text-lg font-semibold text-on-accent hover:bg-accent-hover disabled:opacity-50">
+        <button type="submit" disabled={enviando || !valido} className="h-control-pdv w-full rounded-md bg-accent text-lg font-semibold text-on-accent hover:bg-accent-hover disabled:opacity-50">
           {enviando ? "Lançando…" : "Lançar"}
         </button>
       </form>

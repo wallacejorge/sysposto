@@ -12,7 +12,7 @@ export default async function PaginaCaixa() {
   const usuario = await exigirUsuario("caixa.operar");
   const turno = await turnoAbertoDo(usuario);
   if (!turno) redirect("/caixa/abrir");
-  const [pendentes, cat] = await Promise.all([abastecimentosPendentes(usuario.empresaId), catalogo(usuario.empresaId)]);
+  const [pendentes, cat] = await Promise.all([abastecimentosPendentes(usuario.empresaId), catalogo(usuario.empresaId, turno.id)]);
   return (
     <Pdv
       usuario={{ id: usuario.id, apelido: usuario.apelido }}

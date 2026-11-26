@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { buscarMercadoria, historicoPrecos, listarGrupos, listarTiposPreco, listarUnidades } from "@/lib/data/cadastros";
+import { buscarMercadoria, historicoPrecos, listarGrupos, listarTiposPreco, listarTributacoes, listarUnidades } from "@/lib/data/cadastros";
 import { exigirUsuario } from "@/lib/session";
 import { precoLitro } from "@/lib/format";
 import { CampoSelecao, CampoTexto, Grade } from "@/components/campos";
@@ -27,8 +27,8 @@ export default async function EditarMercadoria({ params, searchParams }: { param
   const { salvo } = await searchParams;
   const m = await buscarMercadoria(u.empresaId, id);
   if (!m) notFound();
-  const [grupos, unidades, tipos, historico] = await Promise.all([
-    listarGrupos(u.empresaId), listarUnidades(), listarTiposPreco(u.empresaId), historicoPrecos(u.empresaId, id),
+  const [grupos, unidades, tipos, historico, tributacoes] = await Promise.all([
+    listarGrupos(u.empresaId), listarUnidades(), listarTiposPreco(u.empresaId), historicoPrecos(u.empresaId, id), listarTributacoes(u.empresaId),
   ]);
   const podePreco = Boolean(u.permissoes["preco.alterar"]);
   const vigentes = historico.filter((h) => h.situacao === "vigente");
@@ -40,7 +40,7 @@ export default async function EditarMercadoria({ params, searchParams }: { param
       <TituloPagina titulo={m.nome} descricao={`Código ${m.codigo}`} />
 
       <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
-        <FormMercadoria m={m} grupos={grupos} unidades={unidades} />
+        <FormMercadoria m={m} grupos={grupos} unidades={unidades} tributacoes={tributacoes} />
 
         <div className="space-y-4">
           <Cartao titulo="Preço agora">
